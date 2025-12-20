@@ -1,0 +1,7 @@
+# Diagram generation
+diagrams>=0.23.0
+
+# diagrams requires graphviz system package:
+#   Ubuntu/Debian: sudo apt install graphviz
+#   macOS: brew install graphviz
+#   Fedora: sudo dnf install graphviz

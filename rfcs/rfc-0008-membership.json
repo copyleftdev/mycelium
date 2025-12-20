@@ -1,0 +1,330 @@
+{
+  "rfc_id": "RFC-0008",
+  "title": "Membership & Access Control",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "access",
+  "depends_on": ["RFC-0006", "RFC-0003"],
+  "summary": "Specifies project membership roles (owner, admin, member, reader), membership mutations (add/remove), permission checks, and how PDK wrappers are managed per-member.",
+
+  "motivation": {
+    "problem": "Projects need fine-grained access control: who can read secrets, who can write, who can add others, who can rotate keys. These permissions must be enforced client-side since the server is untrusted.",
+    "solution": "Define a role-based access control model stored in signed membership records. CLI enforces permissions before performing operations. PDK access is the ultimate gate—you can't decrypt without a wrapped PDK."
+  },
+
+  "design": {
+    "roles": {
+      "description": "Hierarchical roles with increasing permissions",
+      "definitions": [
+        {
+          "name": "Owner",
+          "level": 4,
+          "permissions": ["read", "write", "share", "rotate", "delete_project", "transfer_ownership"],
+          "description": "Full control over project. Can delete project or transfer ownership.",
+          "constraints": "Exactly one owner per project. Cannot remove self unless transferring."
+        },
+        {
+          "name": "Admin",
+          "level": 3,
+          "permissions": ["read", "write", "share", "rotate"],
+          "description": "Can manage membership and rotate keys. Cannot delete project."
+        },
+        {
+          "name": "Member",
+          "level": 2,
+          "permissions": ["read", "write"],
+          "description": "Can read and write secrets. Cannot manage membership."
+        },
+        {
+          "name": "Reader",
+          "level": 1,
+          "permissions": ["read"],
+          "description": "Read-only access to secrets."
+        }
+      ]
+    },
+
+    "permissions": {
+      "description": "What each permission allows",
+      "definitions": [
+        {
+          "name": "read",
+          "allows": ["Pull secret sets", "View versions", "View membership", "Verify signatures"]
+        },
+        {
+          "name": "write",
+          "allows": ["Push new secret set versions", "Create secret sets"]
+        },
+        {
+          "name": "share",
+          "allows": ["Add members (up to own level)", "Remove members (below own level)", "Wrap PDK to new devices"]
+        },
+        {
+          "name": "rotate",
+          "allows": ["Trigger PDK rotation", "Revoke devices"]
+        },
+        {
+          "name": "delete_project",
+          "allows": ["Delete entire project and all versions"]
+        },
+        {
+          "name": "transfer_ownership",
+          "allows": ["Make another admin the owner"]
+        }
+      ]
+    },
+
+    "membership_storage": {
+      "description": "How membership is stored in Git",
+      "path": ".mycelium/projects/<project-id>/members.json",
+      "schema": {
+        "schema_version": 1,
+        "type": "project_members",
+        "data": {
+          "project_id": "UUID",
+          "members": [
+            {
+              "user_id": "OIDC subject",
+              "role": "owner|admin|member|reader",
+              "added_at": "RFC3339",
+              "added_by": "DeviceId"
+            }
+          ],
+          "updated_at": "RFC3339"
+        },
+        "signature": "base64",
+        "signed_by": "DeviceId"
+      }
+    },
+
+    "add_member_flow": {
+      "description": "Adding a new member to a project",
+      "preconditions": [
+        "Actor has 'share' permission",
+        "Target role is <= actor's role level",
+        "Target user exists in org (has enrolled devices)"
+      ],
+      "steps": [
+        {
+          "step": 1,
+          "action": "Verify actor has share permission"
+        },
+        {
+          "step": 2,
+          "action": "Verify target role level <= actor role level"
+        },
+        {
+          "step": 3,
+          "action": "Look up target user's active devices"
+        },
+        {
+          "step": 4,
+          "action": "Get current PDK version"
+        },
+        {
+          "step": 5,
+          "action": "Unwrap PDK using actor's device key"
+        },
+        {
+          "step": 6,
+          "action": "Wrap PDK to each of target's devices"
+        },
+        {
+          "step": 7,
+          "action": "Append wrapped PDKs to current PdkVersion"
+        },
+        {
+          "step": 8,
+          "action": "Add member entry to members.json"
+        },
+        {
+          "step": 9,
+          "action": "Sign both files with actor's signing key"
+        },
+        {
+          "step": 10,
+          "action": "Commit and push"
+        }
+      ],
+      "audit_event": {
+        "type": "member_added",
+        "actor": "DeviceId",
+        "target_user": "UserId",
+        "role": "Role",
+        "timestamp": "RFC3339"
+      }
+    },
+
+    "remove_member_flow": {
+      "description": "Removing a member from a project",
+      "preconditions": [
+        "Actor has 'share' permission",
+        "Target role level < actor's role level (cannot remove equals or superiors)",
+        "Target is not the owner"
+      ],
+      "steps": [
+        {
+          "step": 1,
+          "action": "Verify actor has share permission"
+        },
+        {
+          "step": 2,
+          "action": "Verify target role level < actor role level"
+        },
+        {
+          "step": 3,
+          "action": "Remove member entry from members.json"
+        },
+        {
+          "step": 4,
+          "action": "Trigger PDK rotation (RFC-0006)"
+        },
+        {
+          "step": 5,
+          "action": "New PDK wrapped only to remaining members' devices"
+        },
+        {
+          "step": 6,
+          "action": "Sign and commit"
+        }
+      ],
+      "audit_event": {
+        "type": "member_removed",
+        "actor": "DeviceId",
+        "target_user": "UserId",
+        "timestamp": "RFC3339",
+        "pdk_rotated_to_version": "VersionNumber"
+      }
+    },
+
+    "change_role_flow": {
+      "description": "Changing a member's role",
+      "preconditions": [
+        "Actor has 'share' permission",
+        "Actor role level > target's current role level",
+        "Actor role level > new role level",
+        "Cannot change owner's role (must transfer ownership)"
+      ],
+      "steps": [
+        "Verify preconditions",
+        "Update role in members.json",
+        "Sign and commit"
+      ],
+      "notes": "Role changes don't require PDK rotation—they only affect permission checks, not crypto access"
+    },
+
+    "transfer_ownership_flow": {
+      "description": "Transferring project ownership",
+      "preconditions": [
+        "Actor is current owner",
+        "Target is current admin"
+      ],
+      "steps": [
+        "Set target's role to owner",
+        "Set actor's role to admin",
+        "Sign and commit"
+      ]
+    },
+
+    "permission_enforcement": {
+      "description": "How permissions are checked",
+      "client_side": {
+        "when": "Before any mutating operation",
+        "how": [
+          "1. Read members.json",
+          "2. Verify signature",
+          "3. Find actor's membership entry",
+          "4. Check if required permission is in role's permission set",
+          "5. If not, abort with AccessDenied"
+        ]
+      },
+      "crypto_enforcement": {
+        "description": "Even if permission checks were bypassed, crypto prevents unauthorized access",
+        "read": "Cannot decrypt without wrapped PDK for your device",
+        "write": "Writes without valid signature will be rejected by other clients",
+        "share": "Cannot wrap PDK without unwrapping it first (need existing access)"
+      }
+    },
+
+    "device_membership": {
+      "description": "Membership is per-user, but PDKs are wrapped per-device",
+      "model": [
+        "User is added to project with a role",
+        "PDK is wrapped to all of user's active devices",
+        "If user enrolls new device, admin must wrap PDK to new device",
+        "If device is revoked, its wrapped PDKs are not removed (but PDK rotation invalidates them)"
+      ]
+    },
+
+    "new_device_access": {
+      "description": "How an existing member's new device gains access",
+      "options": [
+        {
+          "option": "Admin wraps",
+          "flow": "Admin (with share permission) wraps current PDK to new device"
+        },
+        {
+          "option": "Self-wrap (if enabled)",
+          "flow": "User uses existing device to wrap PDK to their new device",
+          "constraint": "Requires org setting 'allow_self_device_wrap'"
+        }
+      ]
+    },
+
+    "membership_verification": {
+      "description": "Verifying membership records",
+      "checks": [
+        "Signature is valid from a device belonging to a user with share permission at time of signing",
+        "Member additions are signed by someone with share permission",
+        "Member removals are signed by someone with share permission and higher role level",
+        "Role changes follow the same rules"
+      ],
+      "audit_trail": "Full history in Git commits"
+    }
+  },
+
+  "functions": {
+    "check_permission": {
+      "signature": "fn check_permission(project_id: &ProjectId, user_id: &UserId, permission: Permission) -> Result<()>",
+      "behavior": "Returns Ok if user has permission, Err(AccessDenied) otherwise"
+    },
+    "get_members": {
+      "signature": "fn get_members(project_id: &ProjectId) -> Result<Vec<ProjectMember>>",
+      "behavior": "Read and verify members.json"
+    },
+    "add_member": {
+      "signature": "fn add_member(project_id: &ProjectId, target_user: &UserId, role: Role, device: &DeviceContext) -> Result<()>",
+      "behavior": "Full add member flow"
+    },
+    "remove_member": {
+      "signature": "fn remove_member(project_id: &ProjectId, target_user: &UserId, device: &DeviceContext) -> Result<()>",
+      "behavior": "Full remove member flow with PDK rotation"
+    },
+    "change_role": {
+      "signature": "fn change_role(project_id: &ProjectId, target_user: &UserId, new_role: Role, device: &DeviceContext) -> Result<()>",
+      "behavior": "Change member's role"
+    }
+  },
+
+  "acceptance_criteria": [
+    "Owner can add admin, member, reader",
+    "Admin can add member, reader (not owner or admin)",
+    "Member cannot add anyone",
+    "Reader cannot add anyone",
+    "Removing member triggers PDK rotation",
+    "Removed member cannot decrypt new versions",
+    "Permission checks prevent unauthorized operations",
+    "Unsigned membership changes are rejected",
+    "Ownership transfer works correctly"
+  ],
+
+  "open_questions": [
+    "Should we support group-based membership (roles assigned to groups)?",
+    "Should we support time-limited membership (auto-expire)?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

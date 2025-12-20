@@ -1,0 +1,306 @@
+{
+  "rfc_id": "RFC-0014",
+  "title": "CLI User Experience & Quick Start",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "critical",
+  "depends_on": ["RFC-0010"],
+  "summary": "Defines the CLI user experience details that make Mycelium delightful to use: the 5-minute quick start, shell completions, project config files, subprocess injection, progress indicators, and helpful error messages.",
+
+  "motivation": {
+    "problem": "Technically correct CLIs often fail adoption because they're tedious to use. The difference between 'works' and 'delightful' is: smart defaults, minimal typing, helpful feedback, and integration with existing workflows.",
+    "solution": "Design for the first 5 minutes, provide shell completions, support project-level config files, enable seamless subprocess secret injection, and make every error message actionable."
+  },
+
+  "design": {
+    "five_minute_quick_start": {
+      "description": "Zero to encrypted secrets in 5 minutes",
+      "scenario": "New user with existing .env file wants to secure their secrets",
+      "flow": [
+        {
+          "step": 1,
+          "time": "30 sec",
+          "command": "myc init my-secrets",
+          "what_happens": [
+            "GitHub OAuth device flow (browser opens)",
+            "User authorizes Mycelium",
+            "CLI creates private repo 'my-secrets' on GitHub",
+            "CLI generates device keys (prompts for optional passphrase)",
+            "CLI initializes vault structure"
+          ],
+          "output": "✓ Vault created: github.com/yourname/my-secrets\n✓ Device enrolled: MacBook Pro\n\nNext: Create a project with 'myc project create <name>'"
+        },
+        {
+          "step": 2,
+          "time": "5 sec",
+          "command": "myc project create api",
+          "output": "✓ Project 'api' created\n\nNext: Create a secret set with 'myc set create api <environment>'"
+        },
+        {
+          "step": 3,
+          "time": "5 sec",
+          "command": "myc set create api production",
+          "output": "✓ Secret set 'production' created in project 'api'\n\nNext: Push secrets with 'myc push api production <file>'"
+        },
+        {
+          "step": 4,
+          "time": "10 sec",
+          "command": "myc push api production .env",
+          "what_happens": [
+            "CLI reads .env file",
+            "Encrypts with project PDK",
+            "Signs with device key",
+            "Pushes to GitHub"
+          ],
+          "output": "✓ Pushed 12 secrets to api/production (v1)\n\n  DATABASE_URL      = postgres://... (hidden)\n  STRIPE_SECRET_KEY = sk_live_...   (hidden)\n  ...\n\nPull anytime with: myc pull api production"
+        },
+        {
+          "step": 5,
+          "time": "5 sec",
+          "command": "myc pull api production",
+          "output": "DATABASE_URL=postgres://user:pass@host:5432/db\nSTRIPE_SECRET_KEY=sk_live_abc123\n..."
+        }
+      ],
+      "total_time": "~1 minute for experienced user, ~5 minutes with reading"
+    },
+
+    "project_config_file": {
+      "description": "Optional .myc.yaml in repo root for project defaults",
+      "filename": ".myc.yaml",
+      "purpose": "Reduce typing for common operations in a specific codebase",
+      "schema": {
+        "vault": "owner/repo (default vault for this project)",
+        "project": "project name (default project)",
+        "set": "set name (default set)",
+        "export_format": "dotenv|json|shell (default export format)",
+        "output_file": ".env (default output file for pull)"
+      },
+      "example": {
+        "vault": "myorg/secrets-vault",
+        "project": "api",
+        "set": "production",
+        "export_format": "dotenv",
+        "output_file": ".env"
+      },
+      "usage": {
+        "without_config": "myc pull myorg/secrets-vault api production --export dotenv -o .env",
+        "with_config": "myc pull"
+      },
+      "discovery": "CLI walks up directory tree to find .myc.yaml"
+    },
+
+    "subprocess_injection": {
+      "description": "Run a command with secrets injected into environment",
+      "command": "myc run <command>",
+      "behavior": [
+        "Pulls secrets from configured project/set",
+        "Injects as environment variables",
+        "Executes subprocess",
+        "Secrets never written to disk"
+      ],
+      "examples": [
+        {
+          "command": "myc run npm start",
+          "description": "Start Node app with secrets injected"
+        },
+        {
+          "command": "myc run --set staging python manage.py migrate",
+          "description": "Run Django migrations with staging secrets"
+        },
+        {
+          "command": "myc run --project api --set production ./deploy.sh",
+          "description": "Run deploy script with production secrets"
+        }
+      ],
+      "flags": [
+        "--project <project>  Override project from config",
+        "--set <set>          Override set from config",
+        "--env-file <path>    Also load from local env file (merged)",
+        "--verbose            Print loaded secret names (not values)"
+      ],
+      "security": [
+        "Secrets in memory only, never touch disk",
+        "Subprocess inherits secrets via environment",
+        "When subprocess exits, secrets are gone"
+      ]
+    },
+
+    "shell_completions": {
+      "description": "Tab completion for shells",
+      "supported": ["bash", "zsh", "fish", "powershell"],
+      "generation": {
+        "command": "myc completions <shell>",
+        "output": "Completion script to stdout"
+      },
+      "installation": {
+        "bash": "myc completions bash >> ~/.bashrc",
+        "zsh": "myc completions zsh >> ~/.zshrc",
+        "fish": "myc completions fish > ~/.config/fish/completions/myc.fish"
+      },
+      "what_completes": [
+        "Subcommands (myc pr<TAB> → project)",
+        "Project names (myc pull <TAB> → api, web, ...)",
+        "Set names (myc pull api <TAB> → production, staging)",
+        "Flag names (myc pull --<TAB> → --export, --output)",
+        "Flag values (myc pull --export <TAB> → dotenv, json, shell)"
+      ],
+      "implementation": "Use clap's built-in completion generation"
+    },
+
+    "progress_and_feedback": {
+      "description": "Visual feedback for operations",
+      "spinners": {
+        "when": "Network operations, crypto operations > 100ms",
+        "library": "indicatif or console crate",
+        "examples": [
+          "⠋ Authenticating with GitHub...",
+          "⠙ Encrypting secrets...",
+          "⠹ Pushing to vault..."
+        ]
+      },
+      "colors": {
+        "success": "green (✓)",
+        "warning": "yellow (⚠️)",
+        "error": "red (✗)",
+        "info": "blue (ℹ)",
+        "secret_values": "dim/gray (visually de-emphasized)"
+      },
+      "confirmation_prompts": {
+        "destructive_actions": [
+          "myc project delete",
+          "myc set delete",
+          "myc device revoke",
+          "myc share remove (triggers rotation)"
+        ],
+        "format": "Are you sure you want to delete project 'api'? This cannot be undone. [y/N]"
+      }
+    },
+
+    "error_messages": {
+      "description": "Every error should be actionable",
+      "principles": [
+        "Say what went wrong",
+        "Say why it matters",
+        "Say how to fix it"
+      ],
+      "examples": [
+        {
+          "bad": "Error: Access denied",
+          "good": "✗ Access denied: You don't have access to project 'api'.\n\n  You need to be added by a project admin.\n  Ask them to run: myc share add api yourname@github"
+        },
+        {
+          "bad": "Error: Decryption failed",
+          "good": "✗ Decryption failed: No wrapped PDK found for your device.\n\n  This can happen if:\n  • You were removed from the project\n  • The project PDK was rotated after your last access\n  • You enrolled a new device that hasn't been granted access\n\n  Ask a project admin to re-add you: myc share add api yourname@github"
+        },
+        {
+          "bad": "Error: Push rejected",
+          "good": "✗ Push rejected: The vault has been updated since your last pull.\n\n  Someone else pushed changes. To resolve:\n  1. Pull the latest: myc pull api production\n  2. Merge your changes\n  3. Push again: myc push api production .env"
+        },
+        {
+          "bad": "Error: Rate limited",
+          "good": "✗ GitHub API rate limit reached (5000/hour).\n\n  Resets in: 23 minutes\n  To check status: myc status --rate-limit"
+        }
+      ]
+    },
+
+    "aliases_and_shortcuts": {
+      "description": "Common operations should be fast to type",
+      "built_in_aliases": [
+        { "alias": "myc p", "expands_to": "myc pull" },
+        { "alias": "myc ps", "expands_to": "myc push" },
+        { "alias": "myc r", "expands_to": "myc run" },
+        { "alias": "myc s", "expands_to": "myc status" }
+      ],
+      "implicit_defaults": [
+        "If only one project exists, it's the default",
+        "If only one set exists in project, it's the default",
+        "Most recent set pulled becomes default for that session"
+      ]
+    },
+
+    "status_command": {
+      "description": "At-a-glance system status",
+      "command": "myc status",
+      "output_example": [
+        "Mycelium Status",
+        "═══════════════════════════════════════",
+        "Profile:    default (github.com/myorg/secrets-vault)",
+        "User:       alice (github.com/alice)",
+        "Device:     MacBook Pro (enrolled 3 days ago)",
+        "",
+        "Recovery:",
+        "  Devices:          2 ✓",
+        "  Recovery contacts: bob, charlie ✓",
+        "",
+        "Projects with access: 3",
+        "  • api          (owner)    - 2 sets",
+        "  • web          (admin)    - 1 set",
+        "  • shared-keys  (member)   - 1 set",
+        "",
+        "Last pull: api/production v12 (2 hours ago)",
+        "",
+        "GitHub API: 4,823/5,000 requests remaining"
+      ]
+    },
+
+    "gitignore_helper": {
+      "description": "Protect against accidental secret commits",
+      "on_init": "Offer to add .env to .gitignore if not present",
+      "command": "myc gitignore",
+      "action": "Adds common secret file patterns to .gitignore",
+      "patterns": [".env", ".env.*", "*.pem", "*.key", ".myc-secrets/"]
+    },
+
+    "diff_before_push": {
+      "description": "Show what will change before pushing",
+      "command": "myc push api production .env",
+      "behavior": [
+        "Fetch current version",
+        "Compute diff",
+        "Show changes",
+        "Confirm before pushing"
+      ],
+      "output_example": [
+        "Changes to push to api/production (v12 → v13):",
+        "",
+        "  + NEW_API_KEY          = sk_... (added)",
+        "  ~ DATABASE_URL         = changed",
+        "  - OLD_UNUSED_KEY       (removed)",
+        "",
+        "Push these changes? [Y/n]"
+      ]
+    }
+  },
+
+  "implementation_priority": [
+    { "priority": "P0", "feature": "Five-minute quick start flow" },
+    { "priority": "P0", "feature": "Actionable error messages" },
+    { "priority": "P0", "feature": "Progress spinners" },
+    { "priority": "P1", "feature": "Shell completions" },
+    { "priority": "P1", "feature": ".myc.yaml project config" },
+    { "priority": "P1", "feature": "myc run subprocess injection" },
+    { "priority": "P2", "feature": "Diff before push" },
+    { "priority": "P2", "feature": "Aliases and shortcuts" },
+    { "priority": "P2", "feature": "Gitignore helper" }
+  ],
+
+  "acceptance_criteria": [
+    "New user can go from zero to encrypted secrets in under 5 minutes",
+    "Shell completions work for bash, zsh, fish",
+    ".myc.yaml reduces pull command to just 'myc pull'",
+    "myc run injects secrets without writing to disk",
+    "All errors include actionable fix suggestions",
+    "Progress spinners show during network operations",
+    "myc status shows comprehensive system state"
+  ],
+
+  "open_questions": [
+    "Should 'myc run' support --watch mode for development?",
+    "Should we support a 'myc diff' command to compare two versions interactively?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

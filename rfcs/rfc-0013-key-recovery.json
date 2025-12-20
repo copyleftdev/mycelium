@@ -1,0 +1,247 @@
+{
+  "rfc_id": "RFC-0013",
+  "title": "Key Recovery & Account Continuity",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "critical",
+  "depends_on": ["RFC-0004", "RFC-0006", "RFC-0008"],
+  "summary": "Defines how users recover access when they lose their device keys. Covers multi-device enrollment, recovery contacts, and optional Shamir-split recovery keys for organizations.",
+
+  "motivation": {
+    "problem": "If a user loses their only enrolled device, they lose access to all secrets forever. The cryptographic security that protects against attackers also locks out legitimate users. This is the #1 adoption blocker for any E2EE system.",
+    "solution": "Provide multiple recovery paths: (1) encourage multi-device enrollment from day one, (2) allow pre-designated recovery contacts who can re-wrap PDKs, (3) optional Shamir-split organization recovery key for break-glass scenarios."
+  },
+
+  "design": {
+    "recovery_strategies": {
+      "description": "Three complementary recovery mechanisms",
+      "strategies": [
+        {
+          "name": "Multi-Device Enrollment",
+          "type": "preventive",
+          "description": "User enrolls 2+ devices; losing one doesn't lock them out",
+          "complexity": "low",
+          "recommended": true
+        },
+        {
+          "name": "Recovery Contacts",
+          "type": "social",
+          "description": "Pre-designated trusted users can re-wrap PDKs to new device",
+          "complexity": "medium",
+          "recommended": true
+        },
+        {
+          "name": "Organization Recovery Key",
+          "type": "administrative",
+          "description": "Shamir-split key held by N admins; k-of-N can recover any user",
+          "complexity": "high",
+          "recommended": "for enterprises"
+        }
+      ]
+    },
+
+    "multi_device_enrollment": {
+      "description": "Simplest recovery: always have 2+ devices",
+      "flow": [
+        "1. User enrolls primary device (laptop)",
+        "2. User enrolls secondary device (phone, another laptop, USB security key)",
+        "3. Both devices have wrapped PDKs for all projects user has access to",
+        "4. If primary is lost, user still has access via secondary",
+        "5. User enrolls new primary, uses secondary to approve/wrap PDK"
+      ],
+      "cli_commands": [
+        "myc device add              # Enroll additional device",
+        "myc device list             # See all enrolled devices",
+        "myc device wrap-from <device-id>  # Existing device wraps PDK to new device"
+      ],
+      "requirements": [
+        "Minimum 2 devices recommended (enforced via warning, not blocking)",
+        "Each device has independent keypair",
+        "PDKs wrapped to each device independently"
+      ],
+      "ux_nudges": [
+        "After first device enrollment: 'For recovery, we recommend enrolling a second device. Run: myc device add'",
+        "Dashboard shows: '⚠️ Only 1 device enrolled. Add another for recovery.'"
+      ]
+    },
+
+    "recovery_contacts": {
+      "description": "Trusted users who can help you recover",
+      "concept": "User designates 1-3 recovery contacts. If user loses all devices, a recovery contact can wrap PDKs to user's new device.",
+      "flow": [
+        "1. User sets recovery contacts: myc recovery set-contacts alice bob",
+        "2. Recovery contact relationship is stored in vault (signed by user)",
+        "3. User loses all devices",
+        "4. User enrolls new device (has keys, but no PDK access yet)",
+        "5. User asks recovery contact to help",
+        "6. Recovery contact runs: myc recovery assist <user> <new-device-id>",
+        "7. Recovery contact's CLI fetches current PDKs for projects user was member of",
+        "8. Recovery contact wraps PDKs to user's new device pubkey",
+        "9. User can now decrypt secrets again"
+      ],
+      "cli_commands": [
+        "myc recovery set-contacts <user1> [user2] [user3]  # Set recovery contacts",
+        "myc recovery show-contacts                          # View your recovery contacts",
+        "myc recovery assist <user> <device-id>              # Help someone recover",
+        "myc recovery request                                # Request recovery (notifies contacts)"
+      ],
+      "constraints": [
+        "Recovery contact must have Admin or Owner role in at least one shared project",
+        "Recovery contact can only restore access to projects they themselves can access",
+        "Recovery action creates audit log entry",
+        "User must re-authenticate via GitHub OAuth to prove identity before recovery"
+      ],
+      "security_model": {
+        "trust": "You trust your recovery contacts not to collude against you",
+        "limitation": "Recovery contact cannot access projects they're not a member of",
+        "audit": "All recovery actions are logged and signed"
+      }
+    },
+
+    "organization_recovery_key": {
+      "description": "Shamir-split master recovery key for enterprises",
+      "concept": "Organization generates a recovery key that can re-wrap any PDK. Key is split via Shamir's Secret Sharing among N admins; k-of-N must combine to recover.",
+      "when_to_use": [
+        "Enterprise deployments",
+        "Compliance requirements mandating admin recovery",
+        "Situations where recovery contacts are insufficient"
+      ],
+      "setup_flow": [
+        "1. Org owner runs: myc org recovery init --shares 5 --threshold 3",
+        "2. CLI generates org recovery key (ORK)",
+        "3. ORK is wrapped to org's PDKs (stored encrypted, only recoverable by ORK)",
+        "4. CLI splits ORK into 5 shares via Shamir's Secret Sharing",
+        "5. Each share is encrypted to a designated admin's device key",
+        "6. Shares distributed to 5 admins",
+        "7. Any 3 admins can combine shares to reconstruct ORK"
+      ],
+      "recovery_flow": [
+        "1. User loses all devices, recovery contacts unavailable",
+        "2. User requests org recovery: myc recovery request --org-level",
+        "3. 3 admins each run: myc recovery contribute-share <request-id>",
+        "4. CLI collects shares, reconstructs ORK",
+        "5. ORK decrypts PDKs, re-wraps to user's new device",
+        "6. ORK is immediately discarded (never stored assembled)",
+        "7. Audit log records who contributed, when, for whom"
+      ],
+      "cli_commands": [
+        "myc org recovery init --shares <n> --threshold <k>  # Initialize ORK",
+        "myc org recovery rotate                             # Rotate ORK (new shares)",
+        "myc recovery contribute-share <request-id>          # Admin contributes share",
+        "myc org recovery status                             # Show ORK status"
+      ],
+      "security_considerations": [
+        "ORK is never stored in assembled form",
+        "Each share is encrypted to admin's device key",
+        "Share contribution requires admin authentication",
+        "Threshold (k) should be > n/2 to prevent minority collusion",
+        "ORK rotation recommended if any admin leaves org"
+      ],
+      "crypto_details": {
+        "scheme": "Shamir's Secret Sharing over GF(2^256)",
+        "share_format": "32 bytes (x-coordinate) + 32 bytes (y-value)",
+        "threshold": "Configurable, recommended 3-of-5 or 5-of-9"
+      }
+    },
+
+    "recovery_data_model": {
+      "recovery_contacts_record": {
+        "path": ".mycelium/devices/<device-id>.json (extended)",
+        "fields": [
+          { "name": "recovery_contacts", "type": "Vec<UserId>", "notes": "GitHub user IDs of recovery contacts" },
+          { "name": "recovery_contacts_set_at", "type": "OffsetDateTime" },
+          { "name": "recovery_contacts_signature", "type": "Signature" }
+        ]
+      },
+      "org_recovery_key_record": {
+        "path": ".mycelium/recovery/org_recovery.json",
+        "fields": [
+          { "name": "initialized", "type": "bool" },
+          { "name": "total_shares", "type": "u8" },
+          { "name": "threshold", "type": "u8" },
+          { "name": "share_holders", "type": "Vec<DeviceId>" },
+          { "name": "created_at", "type": "OffsetDateTime" },
+          { "name": "last_rotated", "type": "Option<OffsetDateTime>" }
+        ]
+      },
+      "recovery_request_record": {
+        "path": ".mycelium/recovery/requests/<request-id>.json",
+        "fields": [
+          { "name": "request_id", "type": "UUID" },
+          { "name": "requesting_user", "type": "UserId" },
+          { "name": "new_device_id", "type": "DeviceId" },
+          { "name": "new_device_pubkey", "type": "X25519PublicKey" },
+          { "name": "requested_at", "type": "OffsetDateTime" },
+          { "name": "status", "type": "pending|completed|expired|rejected" },
+          { "name": "assisted_by", "type": "Option<DeviceId>" },
+          { "name": "completed_at", "type": "Option<OffsetDateTime>" }
+        ]
+      }
+    },
+
+    "audit_events": {
+      "recovery_events": [
+        { "type": "recovery_contacts_set", "fields": ["user_id", "contacts", "device_id"] },
+        { "type": "recovery_requested", "fields": ["user_id", "new_device_id", "method"] },
+        { "type": "recovery_assisted", "fields": ["user_id", "assisted_by", "projects_recovered"] },
+        { "type": "recovery_share_contributed", "fields": ["request_id", "admin_device_id"] },
+        { "type": "org_recovery_completed", "fields": ["user_id", "shares_used", "admins_involved"] },
+        { "type": "org_recovery_key_rotated", "fields": ["new_share_holders"] }
+      ]
+    },
+
+    "ux_integration": {
+      "enrollment_prompt": {
+        "when": "After first device enrollment",
+        "message": "✓ Device enrolled! For account recovery, we recommend:\n  1. Enroll a second device: myc device add\n  2. Set recovery contacts: myc recovery set-contacts <trusted-user>"
+      },
+      "single_device_warning": {
+        "when": "Any command when user has only 1 device",
+        "message": "⚠️  You have only 1 enrolled device. If you lose it, you'll lose access to your secrets.\n    Run 'myc device add' to enroll a backup device."
+      },
+      "recovery_status_command": {
+        "command": "myc recovery status",
+        "output": "Recovery Status:\n  Devices enrolled: 2 ✓\n  Recovery contacts: alice, bob ✓\n  Org recovery key: enabled (3-of-5) ✓"
+      }
+    }
+  },
+
+  "implementation_phases": [
+    {
+      "phase": 1,
+      "name": "Multi-Device (MVP)",
+      "features": ["Enroll multiple devices", "Wrap PDK from existing device to new device", "Single-device warnings"]
+    },
+    {
+      "phase": 2,
+      "name": "Recovery Contacts",
+      "features": ["Set/view recovery contacts", "Recovery request flow", "Assisted recovery"]
+    },
+    {
+      "phase": 3,
+      "name": "Org Recovery Key",
+      "features": ["Shamir initialization", "Share distribution", "Threshold recovery"]
+    }
+  ],
+
+  "acceptance_criteria": [
+    "User with 2 devices can lose 1 and still access secrets",
+    "User with recovery contact can recover after losing all devices",
+    "Recovery contact can only help with projects they have access to",
+    "Org recovery requires threshold admins to combine shares",
+    "All recovery actions create audit log entries",
+    "Single-device users see warning prompts",
+    "Recovery status command shows current recovery posture"
+  ],
+
+  "open_questions": [
+    "Should recovery contacts require mutual agreement (both parties confirm)?",
+    "Should there be a time delay on recovery to allow the real user to cancel if fraudulent?",
+    "Should we support hardware security keys (YubiKey) as a recovery factor?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

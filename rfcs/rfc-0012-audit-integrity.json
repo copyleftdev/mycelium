@@ -1,0 +1,259 @@
+{
+  "rfc_id": "RFC-0012",
+  "title": "Audit Log & Integrity Verification",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "audit",
+  "depends_on": ["RFC-0002", "RFC-0005"],
+  "summary": "Specifies the signed audit log format, event types, BLAKE3 hash chaining for tamper evidence, integrity verification commands, and compliance export capabilities.",
+
+  "motivation": {
+    "problem": "Organizations need to prove who did what and when for compliance, incident investigation, and trust verification. Since the storage is untrusted, audit logs must be cryptographically verifiable.",
+    "solution": "Every significant operation creates a signed, hash-chained audit event stored in Git. Clients can verify the chain and export for compliance systems."
+  },
+
+  "design": {
+    "audit_event_structure": {
+      "description": "Structure of an audit event",
+      "schema": {
+        "schema_version": 1,
+        "type": "audit_event",
+        "data": {
+          "event_id": "UUID",
+          "event_type": "string (see event types)",
+          "timestamp": "RFC3339",
+          "actor_device_id": "DeviceId",
+          "actor_user_id": "UserId",
+          "org_id": "OrgId",
+          "project_id": "Option<ProjectId>",
+          "details": "event-type-specific object",
+          "chain_hash": "BLAKE3 hash (base64)",
+          "previous_event_id": "Option<UUID>"
+        },
+        "signature": "Ed25519 signature (base64)",
+        "signed_by": "DeviceId"
+      }
+    },
+
+    "event_types": {
+      "org_events": [
+        { "type": "org_created", "details": { "org_name": "string" } },
+        { "type": "org_settings_changed", "details": { "changed_fields": "object" } }
+      ],
+      "device_events": [
+        { "type": "device_enrolled", "details": { "device_id": "UUID", "device_name": "string", "device_type": "string" } },
+        { "type": "device_approved", "details": { "device_id": "UUID", "approved_by": "DeviceId" } },
+        { "type": "device_revoked", "details": { "device_id": "UUID", "reason": "Option<string>" } }
+      ],
+      "project_events": [
+        { "type": "project_created", "details": { "project_id": "UUID", "project_name": "string" } },
+        { "type": "project_deleted", "details": { "project_id": "UUID" } }
+      ],
+      "membership_events": [
+        { "type": "member_added", "details": { "user_id": "string", "role": "string" } },
+        { "type": "member_removed", "details": { "user_id": "string" } },
+        { "type": "role_changed", "details": { "user_id": "string", "old_role": "string", "new_role": "string" } }
+      ],
+      "secret_events": [
+        { "type": "secret_set_created", "details": { "set_id": "UUID", "set_name": "string" } },
+        { "type": "secret_set_deleted", "details": { "set_id": "UUID" } },
+        { "type": "secret_version_created", "details": { "set_id": "UUID", "version": "u64", "message": "Option<string>" } },
+        { "type": "secret_pulled", "details": { "set_id": "UUID", "version": "u64" }, "notes": "Optional per org settings" }
+      ],
+      "key_events": [
+        { "type": "pdk_rotated", "details": { "old_version": "u64", "new_version": "u64", "reason": "string" } }
+      ],
+      "admin_events": [
+        { "type": "audit_note", "details": { "note": "string" } }
+      ]
+    },
+
+    "hash_chain": {
+      "description": "How audit events are chained",
+      "algorithm": "BLAKE3",
+      "computation": {
+        "first_event": "chain_hash = BLAKE3(canonical_json(data_without_chain_hash))",
+        "subsequent": "chain_hash = BLAKE3(previous_chain_hash || canonical_json(data_without_chain_hash))"
+      },
+      "purpose": [
+        "Detect insertion of events",
+        "Detect deletion of events",
+        "Detect modification of events",
+        "Prove ordering"
+      ]
+    },
+
+    "storage": {
+      "description": "Where audit events are stored",
+      "path": ".mycelium/audit/<YYYY-MM>/<event-id>.json",
+      "organization": "Events grouped by month for manageability",
+      "index_file": ".mycelium/audit/index.json",
+      "index_schema": {
+        "latest_event_id": "UUID",
+        "latest_chain_hash": "base64",
+        "event_count": "u64",
+        "months": ["2025-12", "2025-11"]
+      }
+    },
+
+    "verification": {
+      "description": "How to verify audit integrity",
+      "full_verification": {
+        "command": "myc verify --audit",
+        "steps": [
+          "1. Read all events in order (by timestamp, then event_id for ties)",
+          "2. For each event, verify signature against actor's device pubkey",
+          "3. Recompute chain_hash from previous + current data",
+          "4. Compare computed hash with stored hash",
+          "5. Report any mismatches"
+        ],
+        "output": {
+          "success": { "ok": true, "events_verified": 1234, "chain_valid": true },
+          "failure": { "ok": false, "error": "chain_broken", "broken_at_event": "UUID", "expected_hash": "...", "actual_hash": "..." }
+        }
+      },
+      "partial_verification": {
+        "command": "myc verify --audit --since <date>",
+        "behavior": "Verify events from date forward, trust anchor is last verified chain_hash"
+      }
+    },
+
+    "event_creation": {
+      "description": "When and how events are created",
+      "automatic": [
+        "Every mutating operation creates an audit event",
+        "Event is signed by actor's device key",
+        "Event is committed with the mutation"
+      ],
+      "atomic": "Mutation + audit event in same Git commit",
+      "optional_events": {
+        "secret_pulled": {
+          "description": "Optionally log read operations",
+          "setting": "org_settings.audit_reads",
+          "default": false,
+          "rationale": "Read events can be noisy; enable for high-security orgs"
+        }
+      }
+    },
+
+    "compliance_export": {
+      "description": "Exporting audit logs for external systems",
+      "formats": [
+        {
+          "name": "json",
+          "command": "myc audit export --format json",
+          "output": "Array of audit events"
+        },
+        {
+          "name": "csv",
+          "command": "myc audit export --format csv",
+          "columns": ["timestamp", "event_type", "actor", "project", "details_summary"]
+        },
+        {
+          "name": "syslog",
+          "command": "myc audit export --format syslog",
+          "output": "RFC 5424 formatted messages"
+        }
+      ],
+      "filters": [
+        "--since <date>",
+        "--until <date>",
+        "--project <project>",
+        "--user <user>",
+        "--event-type <type>"
+      ]
+    },
+
+    "audit_notes": {
+      "description": "Manual audit entries",
+      "command": "myc audit note <text>",
+      "use_cases": [
+        "Document incident response actions",
+        "Record policy decisions",
+        "Add context for auditors"
+      ],
+      "signed": true,
+      "immutable": true
+    },
+
+    "retention": {
+      "description": "Audit log retention",
+      "default": "Forever (Git history)",
+      "compaction": {
+        "description": "Optional: compact old events into summary records",
+        "command": "myc audit compact --before <date>",
+        "behavior": "Replace individual events with monthly summary, keep chain hash",
+        "notes": "Irreversible; original events deleted from Git history"
+      }
+    },
+
+    "clock_considerations": {
+      "description": "Handling clock skew",
+      "rules": [
+        "Timestamps are informational, not authoritative",
+        "Ordering is determined by chain, not timestamp",
+        "Events with future timestamps are accepted but flagged",
+        "Verification reports clock anomalies"
+      ]
+    }
+  },
+
+  "integrity_beyond_audit": {
+    "description": "Other integrity verification",
+    "secret_set_chain": {
+      "command": "myc verify <project> <set>",
+      "verifies": [
+        "All version signatures valid",
+        "Content hashes match ciphertext",
+        "Version chain hashes are correct"
+      ]
+    },
+    "membership_signatures": {
+      "command": "myc verify <project> --membership",
+      "verifies": [
+        "Members file signature valid",
+        "Signer had share permission when signing"
+      ]
+    },
+    "full_project_verification": {
+      "command": "myc verify <project> --all",
+      "verifies": ["Membership", "All secret sets", "All PDK versions", "Project audit events"]
+    }
+  },
+
+  "functions": {
+    "create_audit_event": {
+      "signature": "fn create_audit_event(event_type: EventType, details: Value, device: &DeviceContext) -> Result<AuditEvent>",
+      "behavior": "Create, sign, and chain new audit event"
+    },
+    "verify_audit_chain": {
+      "signature": "fn verify_audit_chain(since: Option<DateTime>) -> Result<AuditVerificationResult>",
+      "behavior": "Verify all events in range"
+    },
+    "export_audit": {
+      "signature": "fn export_audit(format: ExportFormat, filters: &AuditFilters) -> Result<Vec<u8>>",
+      "behavior": "Export filtered events in specified format"
+    }
+  },
+
+  "acceptance_criteria": [
+    "Every mutating operation creates an audit event",
+    "All audit events are signed by actor device",
+    "Hash chain verifies for valid event sequence",
+    "Tampered event breaks chain verification",
+    "Deleted event breaks chain verification",
+    "Export produces valid JSON/CSV",
+    "Audit notes can be added manually",
+    "Verification reports specific broken events"
+  ],
+
+  "open_questions": [
+    "Should audit events be encrypted (metadata privacy)?",
+    "Should we support streaming audit to external SIEM?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

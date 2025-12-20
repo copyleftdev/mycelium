@@ -1,0 +1,347 @@
+{
+  "rfc_id": "RFC-0005",
+  "title": "GitHub Backend Protocol",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "storage",
+  "depends_on": ["RFC-0003"],
+  "summary": "Defines how Mycelium uses GitHub as its complete backend: repository storage for encrypted data, GitHub API for all operations, GitHub OAuth for user identity, and GitHub Actions OIDC for CI workload identity. No server required—just the CLI and GitHub.",
+
+  "motivation": {
+    "problem": "Building and operating custom server infrastructure is expensive and complex. We need reliable, scalable, always-available storage with built-in authentication, access control, and CI integration.",
+    "solution": "Use GitHub as the entire backend. GitHub provides: repository storage (free, scalable, versioned), OAuth/OIDC identity, API for programmatic access, Actions for CI with native OIDC, organizations/teams for structure, and global availability. Mycelium becomes a pure CLI that orchestrates GitHub."
+  },
+
+  "design": {
+    "architecture_overview": {
+      "description": "Mycelium is CLI-only; GitHub is the backend",
+      "components": {
+        "myc_cli": "Local binary handling all crypto, user interaction, and GitHub API calls",
+        "github_repository": "Stores encrypted blobs, signed metadata, audit logs",
+        "github_oauth": "Authenticates users, provides identity",
+        "github_actions_oidc": "Authenticates CI workloads without long-lived secrets",
+        "github_api": "All read/write operations go through REST/GraphQL API"
+      },
+      "what_github_never_sees": [
+        "Plaintext secrets",
+        "Decryption keys (PDKs)",
+        "Device private keys"
+      ]
+    },
+
+    "repository_structure": {
+      "description": "How a Mycelium vault is organized in a GitHub repo",
+      "repo_type": "Dedicated private repository for secrets (not mixed with code)",
+      "naming_convention": "<org>-mycelium-vault or mycelium-secrets",
+      "layout": [
+        {
+          "path": ".mycelium/",
+          "purpose": "Root directory for all Mycelium data"
+        },
+        {
+          "path": ".mycelium/vault.json",
+          "purpose": "Vault metadata: org info, settings, schema version"
+        },
+        {
+          "path": ".mycelium/devices/",
+          "purpose": "Device registry (public keys, status)"
+        },
+        {
+          "path": ".mycelium/devices/<device-id>.json",
+          "purpose": "Individual device record with pubkeys"
+        },
+        {
+          "path": ".mycelium/projects/<project-id>/",
+          "purpose": "Project directory"
+        },
+        {
+          "path": ".mycelium/projects/<project-id>/project.json",
+          "purpose": "Project metadata and current PDK version"
+        },
+        {
+          "path": ".mycelium/projects/<project-id>/members.json",
+          "purpose": "Project membership and roles"
+        },
+        {
+          "path": ".mycelium/projects/<project-id>/pdk/v<N>.json",
+          "purpose": "PDK version N with wrapped keys for authorized devices"
+        },
+        {
+          "path": ".mycelium/projects/<project-id>/sets/<set-id>/",
+          "purpose": "Secret set directory"
+        },
+        {
+          "path": ".mycelium/projects/<project-id>/sets/<set-id>/set.json",
+          "purpose": "Secret set metadata"
+        },
+        {
+          "path": ".mycelium/projects/<project-id>/sets/<set-id>/v<N>.enc",
+          "purpose": "Encrypted secret set version (binary)"
+        },
+        {
+          "path": ".mycelium/projects/<project-id>/sets/<set-id>/v<N>.meta.json",
+          "purpose": "Version metadata: hash, signature, timestamp"
+        },
+        {
+          "path": ".mycelium/audit/",
+          "purpose": "Audit log entries"
+        }
+      ]
+    },
+
+    "github_authentication": {
+      "oauth_app": {
+        "description": "Mycelium registers as a GitHub OAuth App",
+        "type": "OAuth App (not GitHub App—simpler, user-scoped)",
+        "scopes_required": [
+          "repo (read/write private repos)",
+          "read:user (get user identity)",
+          "user:email (get email for display)"
+        ],
+        "flow": "Device Authorization Grant (CLI-friendly, no localhost server needed)",
+        "device_flow_steps": [
+          "1. CLI requests device code from GitHub",
+          "2. User visits github.com/login/device and enters code",
+          "3. User authorizes Mycelium OAuth App",
+          "4. CLI polls for access token",
+          "5. CLI stores token securely (encrypted at rest)"
+        ]
+      },
+      "token_storage": {
+        "location": "~/.config/mycelium/profiles/<profile>/github_token.enc",
+        "encryption": "Encrypted with user's key passphrase",
+        "refresh": "OAuth tokens don't expire unless revoked; CLI handles re-auth if needed"
+      },
+      "user_identity": {
+        "source": "GitHub API /user endpoint",
+        "user_id": "GitHub user ID (numeric, stable)",
+        "username": "GitHub username (for display)",
+        "email": "Primary verified email"
+      }
+    },
+
+    "github_actions_oidc": {
+      "description": "Native CI authentication without stored secrets",
+      "how_it_works": [
+        "GitHub Actions can request OIDC tokens proving the workflow's identity",
+        "Token contains claims: repository, workflow, ref, actor, environment",
+        "Mycelium CLI validates token against GitHub's OIDC provider",
+        "No long-lived secrets stored in GitHub Actions secrets"
+      ],
+      "claims_used": {
+        "repository": "owner/repo format",
+        "repository_owner": "GitHub org or user",
+        "ref": "refs/heads/main or refs/tags/v1.0",
+        "workflow": "Workflow filename",
+        "environment": "GitHub Environment name (if used)",
+        "actor": "User who triggered the workflow"
+      },
+      "identity_format": "github-actions:repo:<owner>/<repo>:ref:<ref>[:environment:<env>]",
+      "authorization": {
+        "description": "CI identities are pre-authorized by pattern matching",
+        "example_patterns": [
+          "github-actions:repo:myorg/api:ref:refs/heads/main",
+          "github-actions:repo:myorg/*:ref:refs/heads/main",
+          "github-actions:repo:myorg/api:environment:production"
+        ],
+        "storage": "Authorized patterns in project members.json as CI members"
+      }
+    },
+
+    "github_api_operations": {
+      "description": "All operations use GitHub API, not local Git",
+      "api_type": "REST API v3 (simpler, well-documented)",
+      "operations": {
+        "read_file": {
+          "endpoint": "GET /repos/{owner}/{repo}/contents/{path}",
+          "notes": "Returns base64-encoded content for files < 1MB"
+        },
+        "read_large_file": {
+          "endpoint": "GET /repos/{owner}/{repo}/git/blobs/{sha}",
+          "notes": "For files > 1MB, get blob directly"
+        },
+        "write_file": {
+          "endpoint": "PUT /repos/{owner}/{repo}/contents/{path}",
+          "notes": "Creates or updates file, requires SHA of current version for updates"
+        },
+        "list_directory": {
+          "endpoint": "GET /repos/{owner}/{repo}/contents/{path}",
+          "notes": "Returns array of file/dir entries"
+        },
+        "get_commits": {
+          "endpoint": "GET /repos/{owner}/{repo}/commits",
+          "notes": "For audit trail, history viewing"
+        },
+        "create_repo": {
+          "endpoint": "POST /user/repos or POST /orgs/{org}/repos",
+          "notes": "For vault initialization"
+        },
+        "check_repo_access": {
+          "endpoint": "GET /repos/{owner}/{repo}",
+          "notes": "Verify user has access to vault repo"
+        }
+      },
+      "rate_limiting": {
+        "authenticated": "5000 requests/hour",
+        "handling": "CLI tracks rate limit headers, backs off when approaching limit"
+      }
+    },
+
+    "conflict_handling": {
+      "description": "Handling concurrent modifications",
+      "strategy": "Optimistic concurrency with SHA-based ETags",
+      "flow": [
+        "1. Read current file, note its SHA",
+        "2. Compute changes locally",
+        "3. PUT with SHA as expected current version",
+        "4. If conflict (SHA mismatch), re-read, merge, retry",
+        "5. After N retries, fail with conflict error"
+      ],
+      "merge_strategies": {
+        "pdk_versions": "Append-only, no conflicts possible",
+        "secret_set_versions": "Append-only, no conflicts possible",
+        "members": "Merge additions, last-write-wins for same user",
+        "devices": "Append-only for new devices"
+      }
+    },
+
+    "caching": {
+      "description": "Local cache for performance",
+      "location": "~/.config/mycelium/profiles/<profile>/cache/",
+      "cached_items": [
+        "Device registry (pubkeys)",
+        "Project metadata",
+        "PDK versions (wrapped keys)",
+        "Recent secret set metadata"
+      ],
+      "not_cached": [
+        "Encrypted secret blobs (fetched on demand)",
+        "Audit logs"
+      ],
+      "invalidation": {
+        "ttl": "5 minutes default",
+        "manual": "myc cache clear",
+        "on_write": "Invalidate affected paths after successful write"
+      }
+    },
+
+    "vault_initialization": {
+      "command": "myc init <repo-name> [--org <github-org>]",
+      "steps": [
+        "1. Authenticate with GitHub OAuth (if not already)",
+        "2. Create new private repository",
+        "3. Initialize .mycelium/ structure",
+        "4. Create vault.json with settings",
+        "5. Register current device",
+        "6. User becomes vault owner"
+      ],
+      "options": {
+        "--org": "Create in GitHub Organization (default: personal)",
+        "--description": "Repository description",
+        "--private": "Always true (enforced)"
+      }
+    },
+
+    "joining_existing_vault": {
+      "command": "myc join <owner>/<repo>",
+      "steps": [
+        "1. Authenticate with GitHub OAuth",
+        "2. Verify user has read access to repo",
+        "3. Read vault.json to verify it's a Mycelium vault",
+        "4. Generate device keypair",
+        "5. Register device in vault",
+        "6. Wait for admin to grant project access (wrap PDK)"
+      ]
+    },
+
+    "github_repository_settings": {
+      "description": "Recommended repo settings for security",
+      "recommendations": [
+        {
+          "setting": "Visibility: Private",
+          "required": true,
+          "reason": "Ciphertext should not be public"
+        },
+        {
+          "setting": "Branch protection on main",
+          "required": false,
+          "reason": "Prevents force pushes, optional for small teams"
+        },
+        {
+          "setting": "Disable wiki, issues, projects",
+          "required": false,
+          "reason": "Vault repo is data-only"
+        },
+        {
+          "setting": "Limit collaborators",
+          "required": false,
+          "reason": "Only vault members need GitHub repo access"
+        }
+      ]
+    },
+
+    "github_org_integration": {
+      "description": "How Mycelium works with GitHub Organizations",
+      "current_scope": "Vault repo lives in org, members added as collaborators",
+      "future_potential": [
+        "Map GitHub Teams to Mycelium project membership",
+        "Use org-level OAuth Apps",
+        "Audit log integration with org audit log"
+      ]
+    }
+  },
+
+  "error_handling": {
+    "github_errors": [
+      { "code": 401, "meaning": "Token expired/revoked", "action": "Re-authenticate" },
+      { "code": 403, "meaning": "Rate limited or forbidden", "action": "Wait/check permissions" },
+      { "code": 404, "meaning": "Repo/file not found", "action": "Check path, check access" },
+      { "code": 409, "meaning": "Conflict (SHA mismatch)", "action": "Retry with fresh SHA" },
+      { "code": 422, "meaning": "Validation error", "action": "Check request format" }
+    ]
+  },
+
+  "security_considerations": [
+    {
+      "concern": "GitHub sees ciphertext",
+      "mitigation": "By design. GitHub is untrusted storage. All crypto is client-side."
+    },
+    {
+      "concern": "OAuth token theft",
+      "mitigation": "Token encrypted at rest. Scoped to minimum permissions. Can be revoked on GitHub."
+    },
+    {
+      "concern": "GitHub employee access",
+      "mitigation": "They see only ciphertext. Cannot decrypt without device keys."
+    },
+    {
+      "concern": "GitHub outage",
+      "mitigation": "Secrets cached locally after first pull. Can operate offline for reads."
+    },
+    {
+      "concern": "Repo deletion",
+      "mitigation": "Recommend org-level backup policies. Git history is the backup."
+    }
+  ],
+
+  "acceptance_criteria": [
+    "OAuth device flow authenticates user successfully",
+    "Vault initialization creates proper repo structure",
+    "Read/write operations work via GitHub API",
+    "Conflict handling retries on SHA mismatch",
+    "GitHub Actions OIDC tokens validate correctly",
+    "Rate limiting is handled gracefully",
+    "Cache improves performance for repeated reads",
+    "Errors from GitHub are translated to clear CLI errors"
+  ],
+
+  "open_questions": [
+    "Should we support GitHub Enterprise Server (self-hosted)?",
+    "Should we create a GitHub App instead of OAuth App for org-level installs?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft - GitHub as complete backend" }
+  ]
+}

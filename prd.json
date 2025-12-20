@@ -1,0 +1,450 @@
+{
+  "prd_id": "mycelium-prd-ultimate-0001",
+  "title": "Mycelium (myc CLI): Zero-Knowledge Secrets on GitHub",
+  "version": "1.0.0",
+  "status": "authoritative",
+  "last_updated": "2025-12-05",
+  "names": {
+    "product_name": "Mycelium",
+    "cli_binary": "myc",
+    "tagline": "A living, zero-knowledge secrets mesh."
+  },
+  "summary": {
+    "problem": "Teams need to store, share, and rotate environment variables (secrets) across many developers and CI/CD systems without trusting the cloud provider with plaintext. Existing solutions require running servers, complex infrastructure, or trusting third-party SaaS with decryption capabilities.",
+    "solution": "Mycelium is a CLI-only secrets system that uses GitHub as its complete backend. GitHub stores only ciphertext—it never sees plaintext secrets. The myc CLI performs all crypto locally: encrypting secret sets with project keys, wrapping keys to members/CI identities, and signing mutations. GitHub provides: free/scalable storage, OAuth identity, Actions OIDC for CI, and built-in availability. You maintain only the CLI; GitHub handles everything else."
+  },
+  "goals": [
+    "Zero-knowledge (cloud-blind) secret storage: plaintext never leaves clients, GitHub sees only ciphertext.",
+    "GitHub-native: leverage GitHub API, OAuth, Actions OIDC—no custom server infrastructure.",
+    "Instant adoption: anyone with a GitHub account can start using Mycelium immediately.",
+    "Scale to thousands of developers with envelope encryption that avoids N×secret re-encryption.",
+    "Strict integrity: signed mutations, verified reads, hash-chained audit logs in Git history.",
+    "Native CI support: GitHub Actions OIDC for zero-secret CI authentication.",
+    "Multi-vault profiles: developers can manage multiple vaults across GitHub accounts/orgs."
+  ],
+  "non_goals": [
+    "GUI/web console (CLI-first; community can build UIs if desired).",
+    "Full metadata-hiding (PIR/ORAM); limited metadata leakage is acceptable.",
+    "Custom server infrastructure—GitHub is the backend.",
+    "Arbitrary secret computation or templating runtime.",
+    "Non-GitHub backends (GitLab, self-hosted Git, etc.)—GitHub only."
+  ],
+  "personas": [
+    {
+      "persona_id": "p_org_owner",
+      "name": "Org Owner / Security Lead",
+      "description": "Defines secret governance and baseline policies.",
+      "primary_jobs": [
+        "Initialize org and allowed remotes",
+        "Define rotation and approval policies",
+        "Set recovery model",
+        "Audit compliance without seeing plaintext"
+      ]
+    },
+    {
+      "persona_id": "p_project_admin",
+      "name": "Project Admin / Team Lead",
+      "description": "Manages project secrets and membership.",
+      "primary_jobs": [
+        "Create projects/secret sets",
+        "Add/remove members quickly",
+        "Rotate keys on demand or schedule",
+        "Separate staging vs production"
+      ]
+    },
+    {
+      "persona_id": "p_dev",
+      "name": "Developer",
+      "description": "Consumes and updates secrets locally.",
+      "primary_jobs": [
+        "Onboard device identity",
+        "Pull secrets to local env",
+        "Push updates safely",
+        "Switch between multiple remotes via profiles"
+      ]
+    },
+    {
+      "persona_id": "p_ci",
+      "name": "CI/CD Service Identity",
+      "description": "Non-interactive actor that needs least-privilege secrets access.",
+      "primary_jobs": [
+        "Enroll headless identity",
+        "Pull secrets during builds/deploys",
+        "Use short-lived access where available",
+        "Revoke on compromise"
+      ]
+    },
+    {
+      "persona_id": "p_contractor",
+      "name": "Contractor / Temporary Collaborator",
+      "description": "Short-lived access that must expire cleanly.",
+      "primary_jobs": [
+        "Get fast access",
+        "Automatic expiry",
+        "No future access after term ends"
+      ]
+    },
+    {
+      "persona_id": "p_auditor",
+      "name": "Auditor / Compliance Viewer",
+      "description": "Verifies policy and access without plaintext.",
+      "primary_jobs": [
+        "Verify signed audit trail",
+        "Prove rotations and revocations occurred",
+        "Export compliance reports"
+      ]
+    },
+    {
+      "persona_id": "p_platform",
+      "name": "Platform / Infra Engineer",
+      "description": "Standardizes secrets across many repos/environments.",
+      "primary_jobs": [
+        "Bulk import/migrate secrets",
+        "Bulk rotate",
+        "Remote migration and mirroring"
+      ]
+    },
+    {
+      "persona_id": "p_github_org_admin",
+      "name": "GitHub Org Admin",
+      "description": "Manages the GitHub organization where vaults live.",
+      "primary_jobs": [
+        "Create vault repositories",
+        "Manage GitHub collaborator access",
+        "Configure GitHub org security settings",
+        "Monitor GitHub Actions usage"
+      ]
+    }
+  ],
+  "lifecycles": [
+    {
+      "lifecycle_id": "lc_bootstrap",
+      "name": "Vault Bootstrap",
+      "steps": [
+        "Owner authenticates with GitHub OAuth",
+        "myc creates private vault repository on GitHub",
+        "Owner creates first project and secret sets",
+        "Owner invites team members"
+      ],
+      "cli_commands": [
+        "myc init <vault-name> [--org <github-org>]",
+        "myc project create <name>",
+        "myc set create <project> <set-name>",
+        "myc share add <project> <github-user> --role admin"
+      ]
+    },
+    {
+      "lifecycle_id": "lc_device_onboard",
+      "name": "Device Onboarding",
+      "steps": [
+        "Developer installs myc and authenticates via GitHub OAuth",
+        "myc generates device keys locally",
+        "Device is registered to vault",
+        "Admin grants project access, developer pulls secrets"
+      ],
+      "cli_commands": [
+        "myc join <owner>/<vault-repo>",
+        "myc pull <project> <set>"
+      ]
+    },
+    {
+      "lifecycle_id": "lc_daily_use",
+      "name": "Daily Pull/Push",
+      "steps": [
+        "Developer pulls latest secret set",
+        "Locally exports env vars to process",
+        "Developer modifies env file",
+        "myc encrypts, signs, commits, pushes new version",
+        "Teammates pull and verify"
+      ],
+      "cli_commands": [
+        "myc pull <set> --export dotenv",
+        "myc push <set> <path> --message <why>",
+        "myc versions list <set>",
+        "myc diff <set> <v1> <v2>"
+      ]
+    },
+    {
+      "lifecycle_id": "lc_membership_change",
+      "name": "Add/Remove Members",
+      "steps": [
+        "Admin adds member by wrapping current PDK to their device pubkey",
+        "Admin removes member and rotates PDK",
+        "New secrets use new PDK"
+      ],
+      "cli_commands": [
+        "myc share add <project> <user|device>",
+        "myc share remove <project> <user|device>",
+        "myc rotate <project>"
+      ]
+    },
+    {
+      "lifecycle_id": "lc_incident_rotation",
+      "name": "Incident / Emergency Rotation",
+      "steps": [
+        "Security Lead revokes compromised device",
+        "Admin rotates PDK and republishes wrappers",
+        "Audit note is signed and committed"
+      ],
+      "cli_commands": [
+        "myc device revoke <device-id>",
+        "myc rotate <project> --reason incident",
+        "myc audit note <text>"
+      ]
+    },
+    {
+      "lifecycle_id": "lc_ci_use",
+      "name": "GitHub Actions CI Access",
+      "steps": [
+        "Workflow requests GitHub OIDC token",
+        "myc validates token, identifies workflow",
+        "Admin pre-authorizes repository/workflow pattern",
+        "CI pulls secrets using OIDC identity—no stored secrets"
+      ],
+      "cli_commands": [
+        "myc ci auth --github-actions",
+        "myc ci pull <project> <set> --format shell"
+      ]
+    },
+    {
+      "lifecycle_id": "lc_profiles",
+      "name": "Multi-Vault Profiles",
+      "steps": [
+        "Developer joins multiple vaults (different orgs/projects)",
+        "Switches active profile per context or command"
+      ],
+      "cli_commands": [
+        "myc profile list",
+        "myc profile use <name>",
+        "myc <any-command> --profile <name>"
+      ]
+    }
+  ],
+  "requirements": {
+    "functional": [
+      {
+        "req_id": "fr_001",
+        "text": "myc MUST encrypt all secret values locally; plaintext MUST never be uploaded to any remote or server.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "fr_002",
+        "text": "myc MUST store only ciphertext blobs + signed metadata in GitHub repositories.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "fr_003",
+        "text": "System MUST use project-level symmetric Project Data Keys (PDKs) to encrypt secret sets; PDKs MUST be wrapped to each authorized device/CI X25519 pubkey.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "fr_004",
+        "text": "Every mutation MUST be signed by actor Ed25519 device key; all readers MUST verify signatures before accepting data.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "fr_005",
+        "text": "myc MUST support secret sets, versions, projects, orgs, membership roles, and per-set pull/export formats.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "fr_006",
+        "text": "myc MUST support adding/removing members and rotating PDKs; removing a member MUST prevent access to all future versions after rotation.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "fr_007",
+        "text": "myc MUST authenticate users via GitHub OAuth Device Flow.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "fr_008",
+        "text": "myc MUST support GitHub Actions OIDC for zero-secret CI authentication.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "fr_009",
+        "text": "myc MUST support multiple named profiles for different GitHub vaults.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "fr_010",
+        "text": "myc MUST use GitHub API for all remote operations (not local Git/libgit2).",
+        "priority": "P0"
+      }
+    ],
+    "non_functional": [
+      {
+        "req_id": "nfr_001",
+        "text": "Security MUST hold if GitHub is fully compromised; attacker MUST not decrypt without authorized device keys.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "nfr_002",
+        "text": "System MUST scale to 10k org members and 1k projects per org without per-secret re-encryption on membership changes.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "nfr_003",
+        "text": "All key material MUST be zeroized on drop and never logged.",
+        "priority": "P0"
+      },
+      {
+        "req_id": "nfr_004",
+        "text": "CLI outputs MUST be deterministic and machine-readable (JSON) when --json is specified, enabling CI pipelines.",
+        "priority": "P0"
+      }
+    ]
+  },
+  "security": {
+    "threat_model": [
+      {
+        "threat_id": "t_001",
+        "actor": "GitHub insider or breach",
+        "vector": "Reads repository contents",
+        "mitigation": "All blobs E2EE; GitHub sees only ciphertext and signed metadata."
+      },
+      {
+        "threat_id": "t_002",
+        "actor": "Network MITM",
+        "vector": "Intercept/modify traffic",
+        "mitigation": "TLS to GitHub API; signed mutations; client verification on pull."
+      },
+      {
+        "threat_id": "t_003",
+        "actor": "Malicious GitHub collaborator",
+        "vector": "Push tampered ciphertext or membership",
+        "mitigation": "Client signature verification + hash chain; unsigned data rejected."
+      },
+      {
+        "threat_id": "t_004",
+        "actor": "Removed member",
+        "vector": "Continues decrypting future secrets",
+        "mitigation": "PDK rotation; new versions use new PDK."
+      },
+      {
+        "threat_id": "t_005",
+        "actor": "Stolen GitHub OAuth token",
+        "vector": "Impersonate user to read ciphertext",
+        "mitigation": "Token alone insufficient—device private key required for decryption."
+      }
+    ],
+    "crypto_primitives": {
+      "aead": "ChaCha20-Poly1305",
+      "key_agreement": "X25519",
+      "signatures": "Ed25519",
+      "kdf": "HKDF-SHA256",
+      "hash_chain": "BLAKE3",
+      "checksums": "CRC32"
+    }
+  },
+  "rust_stack": {
+    "policy": "No unvetted crates; use RustCrypto, dalek, and well-audited HTTP/async crates.",
+    "crates": {
+      "crypto": [
+        "chacha20poly1305",
+        "x25519-dalek",
+        "ed25519-dalek",
+        "hkdf",
+        "sha2",
+        "rand_core",
+        "getrandom",
+        "zeroize",
+        "secrecy",
+        "blake3",
+        "argon2"
+      ],
+      "cli": [
+        "tokio",
+        "clap",
+        "serde",
+        "serde_json",
+        "uuid",
+        "time",
+        "console",
+        "dialoguer",
+        "dirs",
+        "tracing",
+        "tracing-subscriber",
+        "thiserror",
+        "anyhow"
+      ],
+      "github_api": [
+        "reqwest",
+        "octocrab",
+        "jsonwebtoken",
+        "base64"
+      ],
+      "supply_chain_ci": [
+        "cargo-vet",
+        "cargo-audit",
+        "cargo-deny"
+      ]
+    }
+  },
+  "github_repo_layout": {
+    "root_dir": ".mycelium/",
+    "paths": [
+      ".mycelium/vault.json",
+      ".mycelium/devices/<device-id>.json",
+      ".mycelium/projects/<project-id>/project.json",
+      ".mycelium/projects/<project-id>/members.json",
+      ".mycelium/projects/<project-id>/pdk/v<N>.json",
+      ".mycelium/projects/<project-id>/sets/<set-id>/set.json",
+      ".mycelium/projects/<project-id>/sets/<set-id>/v<N>.enc",
+      ".mycelium/projects/<project-id>/sets/<set-id>/v<N>.meta.json",
+      ".mycelium/audit/<YYYY-MM>/<event-id>.json"
+    ],
+    "notes": "All secret values are ciphertext. Metadata (names, timestamps) is plaintext but signed."
+  },
+  "acceptance_criteria": [
+    "Given a GitHub repo containing Mycelium vault, inspecting shows only ciphertext blobs and signed metadata; no plaintext secrets or PDKs.",
+    "Given a developer without project membership, decryption fails due to missing wrapped PDK.",
+    "Given a developer is added to a project, they successfully unwrap PDK and decrypt secrets.",
+    "Given a developer is removed and PDK rotated, they cannot decrypt any version created after rotation.",
+    "Given tampering with repo contents, myc detects signature/hash-chain failure and refuses to output plaintext.",
+    "Given GitHub Actions workflow with OIDC, CI can pull secrets without any stored credentials.",
+    "Given multiple vault profiles, developer can switch targets and pull from each correctly.",
+    "Given GitHub API rate limiting, CLI handles backoff gracefully.",
+    "Given a new user, they can go from zero to encrypted secrets in under 5 minutes.",
+    "Given a user with 2 enrolled devices, losing one does not lock them out.",
+    "Given a user with recovery contacts, they can recover access after losing all devices."
+  ],
+  "open_questions": [
+    "Large secrets: use GitHub LFS for encrypted blobs > 1MB?",
+    "Metadata privacy: encrypt secret set names/project names?",
+    "GitHub Enterprise Server: support self-hosted GitHub?",
+    "GitHub App vs OAuth App: which is better for org-level installs?"
+  ],
+  "resolved_questions": [
+    {
+      "question": "Recovery: Shamir-split admin recovery key vs device re-enrollment flows.",
+      "resolution": "Both. See RFC-0013: Multi-device enrollment (primary), recovery contacts (social), and optional Shamir org recovery key (enterprise)."
+    },
+    {
+      "question": "Historical access: clarify that removed members retain access to versions from before rotation.",
+      "resolution": "Confirmed. Removed members can decrypt versions encrypted before PDK rotation. They already had the key; we can't un-know what was decrypted. Documented in RFC-0009."
+    }
+  ],
+  "out_of_scope": [
+    "GUI / web console",
+    "Advanced metadata hiding (PIR/ORAM)",
+    "Secret templating or interpolation runtime",
+    "Non-GitHub backends (GitLab, Bitbucket, self-hosted Git)",
+    "Custom server infrastructure"
+  ],
+  "issue_generation_hints": {
+    "field_mapping": {
+      "github_issue_title": "text",
+      "github_issue_body": "text",
+      "labels": "priority, area, lifecycle_id",
+      "acceptance": "acceptance_criteria[]"
+    },
+    "issue_splitting_rules": [
+      "One GitHub issue per functional requirement (fr_###) grouped by lifecycle.",
+      "One GitHub issue per lifecycle command surface (lc_###).",
+      "One GitHub issue per security threat mitigation that requires code.",
+      "One GitHub epic per milestone if milestones are added later."
+    ]
+  }
+}

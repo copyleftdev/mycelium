@@ -1,0 +1,32 @@
+[package]
+name = "myc-crypto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure cryptographic primitives for Mycelium"
+
+[dependencies]
+# Cryptography
+chacha20poly1305.workspace = true
+x25519-dalek.workspace = true
+ed25519-dalek.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+blake3.workspace = true
+rand_core.workspace = true
+getrandom.workspace = true
+zeroize.workspace = true
+secrecy.workspace = true
+
+# Serialization
+serde.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lib]
+doctest = false

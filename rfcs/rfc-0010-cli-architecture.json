@@ -1,0 +1,413 @@
+{
+  "rfc_id": "RFC-0010",
+  "title": "CLI Architecture & Command Surface",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "cli",
+  "depends_on": ["RFC-0004", "RFC-0005", "RFC-0007", "RFC-0008"],
+  "summary": "Specifies the myc CLI structure, subcommand taxonomy, profile switching, output formats (human/JSON), interactive prompts, and exit codes.",
+
+  "motivation": {
+    "problem": "The CLI is the primary interface for Mycelium. It must be intuitive for daily use, scriptable for CI, and consistent across all operations.",
+    "solution": "Design a hierarchical command structure with consistent patterns, support for JSON output, profile management, and clear error messaging."
+  },
+
+  "design": {
+    "binary_name": "myc",
+    "tagline": "A living, zero-knowledge secrets mesh.",
+
+    "global_options": {
+      "description": "Options available on all commands",
+      "options": [
+        {
+          "flag": "--profile <name>",
+          "short": "-p",
+          "description": "Use specified profile instead of default",
+          "env": "MYC_PROFILE"
+        },
+        {
+          "flag": "--json",
+          "short": "-j",
+          "description": "Output in JSON format",
+          "env": "MYC_JSON_OUTPUT"
+        },
+        {
+          "flag": "--quiet",
+          "short": "-q",
+          "description": "Suppress non-essential output"
+        },
+        {
+          "flag": "--verbose",
+          "short": "-v",
+          "description": "Increase verbosity (can repeat: -vv, -vvv)"
+        },
+        {
+          "flag": "--no-color",
+          "description": "Disable colored output",
+          "env": "NO_COLOR"
+        },
+        {
+          "flag": "--help",
+          "short": "-h",
+          "description": "Show help for command"
+        },
+        {
+          "flag": "--version",
+          "short": "-V",
+          "description": "Show version information"
+        }
+      ]
+    },
+
+    "command_tree": {
+      "profile": {
+        "description": "Manage CLI profiles",
+        "commands": {
+          "add": {
+            "usage": "myc profile add <name> --remote <url>",
+            "description": "Add a new profile and enroll device",
+            "args": ["name: Profile name"],
+            "options": ["--remote: Git repo URL or cluster URL"],
+            "interactive": true
+          },
+          "list": {
+            "usage": "myc profile list",
+            "description": "List all profiles",
+            "json_output": [{ "name": "string", "remote": "string", "default": "bool" }]
+          },
+          "use": {
+            "usage": "myc profile use <name>",
+            "description": "Set default profile"
+          },
+          "remove": {
+            "usage": "myc profile remove <name>",
+            "description": "Remove a profile (deletes local keys)",
+            "interactive": "Confirm before deletion"
+          },
+          "show": {
+            "usage": "myc profile show [name]",
+            "description": "Show profile details"
+          }
+        }
+      },
+
+      "org": {
+        "description": "Organization management",
+        "commands": {
+          "init": {
+            "usage": "myc org init --remote <url>",
+            "description": "Initialize a new Mycelium org in a Git repo",
+            "options": ["--remote: Git repo URL", "--name: Org display name"],
+            "interactive": true
+          },
+          "show": {
+            "usage": "myc org show",
+            "description": "Show current org info"
+          },
+          "settings": {
+            "usage": "myc org settings [--set key=value]",
+            "description": "View or modify org settings"
+          }
+        }
+      },
+
+      "device": {
+        "description": "Device management",
+        "commands": {
+          "list": {
+            "usage": "myc device list [--user <user-id>]",
+            "description": "List devices in org"
+          },
+          "show": {
+            "usage": "myc device show <device-id>",
+            "description": "Show device details"
+          },
+          "enroll": {
+            "usage": "myc device enroll",
+            "description": "Enroll current device (usually via profile add)"
+          },
+          "revoke": {
+            "usage": "myc device revoke <device-id> [--reason <text>]",
+            "description": "Revoke a device",
+            "interactive": "Confirm revocation"
+          },
+          "approve": {
+            "usage": "myc device approve <device-id>",
+            "description": "Approve a pending device (if org requires approval)"
+          }
+        }
+      },
+
+      "project": {
+        "description": "Project management",
+        "commands": {
+          "create": {
+            "usage": "myc project create <name>",
+            "description": "Create a new project"
+          },
+          "list": {
+            "usage": "myc project list",
+            "description": "List projects you have access to"
+          },
+          "show": {
+            "usage": "myc project show <project>",
+            "description": "Show project details"
+          },
+          "delete": {
+            "usage": "myc project delete <project>",
+            "description": "Delete a project (owner only)",
+            "interactive": "Confirm deletion"
+          }
+        }
+      },
+
+      "set": {
+        "description": "Secret set management",
+        "commands": {
+          "create": {
+            "usage": "myc set create <project> <name>",
+            "description": "Create a new secret set in a project"
+          },
+          "list": {
+            "usage": "myc set list <project>",
+            "description": "List secret sets in a project"
+          },
+          "show": {
+            "usage": "myc set show <project> <set>",
+            "description": "Show secret set metadata"
+          },
+          "delete": {
+            "usage": "myc set delete <project> <set>",
+            "description": "Delete a secret set",
+            "interactive": "Confirm deletion"
+          }
+        }
+      },
+
+      "pull": {
+        "usage": "myc pull <project> <set> [--export <format>] [--output <file>] [--version <n>]",
+        "description": "Pull and decrypt secrets",
+        "options": [
+          "--export: Output format (dotenv, json, shell, yaml)",
+          "--output: Write to file instead of stdout",
+          "--version: Pull specific version (default: latest)"
+        ],
+        "examples": [
+          "myc pull myapp production --export dotenv -o .env",
+          "myc pull myapp staging --export shell | source /dev/stdin"
+        ]
+      },
+
+      "push": {
+        "usage": "myc push <project> <set> <file> [--message <text>]",
+        "description": "Encrypt and push secrets from file",
+        "options": [
+          "--message: Commit message describing the change",
+          "--format: Input format (dotenv, json) - auto-detected by default"
+        ]
+      },
+
+      "share": {
+        "description": "Membership management",
+        "commands": {
+          "add": {
+            "usage": "myc share add <project> <user> [--role <role>]",
+            "description": "Add user to project",
+            "options": ["--role: owner|admin|member|reader (default: member)"]
+          },
+          "remove": {
+            "usage": "myc share remove <project> <user>",
+            "description": "Remove user from project (triggers rotation)"
+          },
+          "list": {
+            "usage": "myc share list <project>",
+            "description": "List project members"
+          },
+          "set-role": {
+            "usage": "myc share set-role <project> <user> <role>",
+            "description": "Change user's role"
+          }
+        }
+      },
+
+      "rotate": {
+        "usage": "myc rotate <project> [--reason <reason>] [--note <text>]",
+        "description": "Rotate project PDK",
+        "options": [
+          "--reason: manual|incident|policy",
+          "--note: Explanation for audit log"
+        ]
+      },
+
+      "versions": {
+        "description": "Version history",
+        "commands": {
+          "list": {
+            "usage": "myc versions list <project> <set>",
+            "description": "List versions of a secret set"
+          },
+          "show": {
+            "usage": "myc versions show <project> <set> <version>",
+            "description": "Show version metadata"
+          }
+        }
+      },
+
+      "diff": {
+        "usage": "myc diff <project> <set> <v1> <v2>",
+        "description": "Show differences between two versions",
+        "output": "Added/removed/changed keys (values optionally shown)"
+      },
+
+      "verify": {
+        "usage": "myc verify <project> [<set>]",
+        "description": "Verify signatures and hash chains",
+        "output": "Verification status, any integrity issues"
+      },
+
+      "audit": {
+        "description": "Audit log operations",
+        "commands": {
+          "list": {
+            "usage": "myc audit list [--project <project>] [--since <date>]",
+            "description": "List audit events"
+          },
+          "show": {
+            "usage": "myc audit show <event-id>",
+            "description": "Show audit event details"
+          },
+          "export": {
+            "usage": "myc audit export [--format json|csv] [--output <file>]",
+            "description": "Export audit log for compliance"
+          },
+          "note": {
+            "usage": "myc audit note <text>",
+            "description": "Add a signed audit note"
+          }
+        }
+      },
+
+      "ci": {
+        "description": "CI/CD specific commands",
+        "commands": {
+          "enroll": {
+            "usage": "myc ci enroll [--name <name>]",
+            "description": "Enroll CI device non-interactively",
+            "env_required": ["MYC_KEY_PASSPHRASE or empty for no passphrase"]
+          },
+          "pull": {
+            "usage": "myc ci pull <project> <set> --format <shell|dotenv|json>",
+            "description": "Pull secrets in CI-friendly format"
+          }
+        }
+      },
+
+      "cache": {
+        "description": "Local cache management",
+        "commands": {
+          "clear": {
+            "usage": "myc cache clear [--profile <name>]",
+            "description": "Clear local Git cache"
+          },
+          "status": {
+            "usage": "myc cache status",
+            "description": "Show cache status"
+          }
+        }
+      }
+    },
+
+    "output_formats": {
+      "human": {
+        "description": "Default formatted output for terminal",
+        "features": [
+          "Colored output (respects NO_COLOR)",
+          "Tables for lists",
+          "Progress indicators for long operations",
+          "Clear error messages with suggestions"
+        ]
+      },
+      "json": {
+        "description": "Machine-readable output with --json flag",
+        "schema": {
+          "success": {
+            "ok": true,
+            "data": "command-specific payload"
+          },
+          "error": {
+            "ok": false,
+            "error": {
+              "code": "ERROR_CODE",
+              "message": "Human-readable message",
+              "details": {}
+            }
+          }
+        }
+      }
+    },
+
+    "exit_codes": {
+      "0": "Success",
+      "1": "General error",
+      "2": "Invalid arguments / usage error",
+      "3": "Authentication error (OIDC, credentials)",
+      "4": "Authorization error (permission denied)",
+      "5": "Crypto error (decryption failed, signature invalid)",
+      "6": "Network error (Git remote unreachable)",
+      "7": "Conflict error (push rejected, merge failed)",
+      "8": "Not found (project, set, version doesn't exist)",
+      "10": "User cancelled (interactive prompt rejected)"
+    },
+
+    "interactive_prompts": {
+      "library": "dialoguer",
+      "patterns": [
+        "Confirmation before destructive actions (delete, revoke)",
+        "Password input for key passphrase (hidden)",
+        "Selection lists for ambiguous targets",
+        "Progress bars for long operations"
+      ],
+      "non_interactive_mode": {
+        "env": "MYC_NON_INTERACTIVE=1",
+        "behavior": "All prompts fail with exit code 10, prompting user to provide explicit flags"
+      }
+    },
+
+    "configuration_precedence": {
+      "description": "Order of configuration sources (highest to lowest)",
+      "order": [
+        "Command-line flags",
+        "Environment variables",
+        "Profile config file",
+        "Global config file",
+        "Built-in defaults"
+      ]
+    }
+  },
+
+  "implementation_notes": {
+    "framework": "clap v4 with derive macros",
+    "async": "tokio runtime for network operations",
+    "error_handling": "anyhow for error propagation, thiserror for typed errors at boundaries"
+  },
+
+  "acceptance_criteria": [
+    "All commands show help with --help",
+    "--json produces valid JSON for all commands",
+    "Exit codes are consistent per error type",
+    "Profile switching works with --profile flag",
+    "Non-interactive mode fails gracefully without prompts",
+    "Colored output respects NO_COLOR env",
+    "Tab completion scripts can be generated"
+  ],
+
+  "open_questions": [
+    "Should we support shell completion generation (bash, zsh, fish)?",
+    "Should we support a 'run' command that loads secrets and executes a subprocess?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

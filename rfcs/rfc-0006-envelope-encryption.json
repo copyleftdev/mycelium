@@ -1,0 +1,260 @@
+{
+  "rfc_id": "RFC-0006",
+  "title": "Envelope Encryption & PDK Lifecycle",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "crypto",
+  "depends_on": ["RFC-0002", "RFC-0004"],
+  "summary": "Specifies the envelope encryption scheme: Project Data Keys (PDKs) encrypt secret sets, PDKs are wrapped to individual device public keys. Covers PDK generation, wrapping, unwrapping, and versioning.",
+
+  "motivation": {
+    "problem": "If we encrypted each secret directly to each member's key, adding/removing members would require re-encrypting all secrets (O(secrets × members)). This doesn't scale.",
+    "solution": "Use envelope encryption: one symmetric PDK per project encrypts all secrets. The PDK is wrapped (encrypted) to each member's X25519 pubkey. Adding a member means wrapping the PDK to their key. Removing a member means rotating the PDK and re-wrapping to remaining members (O(members))."
+  },
+
+  "design": {
+    "key_hierarchy": {
+      "description": "Three-level key hierarchy",
+      "levels": [
+        {
+          "level": 1,
+          "name": "Device Keys",
+          "type": "Asymmetric (X25519 + Ed25519)",
+          "lifetime": "Per-device, until device is revoked",
+          "stored": "Locally on device (encrypted)"
+        },
+        {
+          "level": 2,
+          "name": "Project Data Key (PDK)",
+          "type": "Symmetric (ChaCha20-Poly1305 key, 32 bytes)",
+          "lifetime": "Per-project, until rotation event",
+          "stored": "Wrapped to each authorized device in Git"
+        },
+        {
+          "level": 3,
+          "name": "Secret Data",
+          "type": "Encrypted with PDK",
+          "lifetime": "Per-version of secret set",
+          "stored": "Ciphertext in Git"
+        }
+      ]
+    },
+
+    "pdk_generation": {
+      "description": "Creating a new PDK",
+      "algorithm": {
+        "step_1": "Generate 32 random bytes using OS CSPRNG",
+        "step_2": "Wrap in AeadKey type (zeroizes on drop)",
+        "step_3": "Assign next version number (previous + 1, or 1 for new project)",
+        "step_4": "Wrap to all current project members' devices"
+      },
+      "when": [
+        "Project creation (version 1)",
+        "Member removal (rotation)",
+        "Scheduled rotation policy",
+        "Manual rotation (incident response)"
+      ]
+    },
+
+    "pdk_wrapping": {
+      "description": "Encrypting PDK to a device's public key",
+      "algorithm": "ECIES-style with X25519 + HKDF + ChaCha20-Poly1305",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Generate ephemeral X25519 keypair (e_sk, e_pk)"
+        },
+        {
+          "step": 2,
+          "action": "Compute shared_secret = X25519(e_sk, recipient_pk)"
+        },
+        {
+          "step": 3,
+          "action": "Derive wrap_key = HKDF-SHA256(shared_secret, salt=e_pk || recipient_pk, info='mycelium-pdk-wrap-v1')"
+        },
+        {
+          "step": 4,
+          "action": "Encrypt: ciphertext = AEAD_encrypt(wrap_key, pdk_bytes, aad=project_id || pdk_version)"
+        },
+        {
+          "step": 5,
+          "action": "Return WrappedPdk { device_id, ephemeral_pubkey: e_pk, ciphertext }"
+        }
+      ],
+      "output_format": {
+        "device_id": "UUID of target device",
+        "ephemeral_pubkey": "32 bytes (X25519 public key)",
+        "ciphertext": "12 (nonce) + 32 (PDK) + 16 (tag) = 60 bytes"
+      }
+    },
+
+    "pdk_unwrapping": {
+      "description": "Decrypting PDK using device's secret key",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Find WrappedPdk for this device_id in PdkVersion"
+        },
+        {
+          "step": 2,
+          "action": "Compute shared_secret = X25519(device_sk, ephemeral_pubkey)"
+        },
+        {
+          "step": 3,
+          "action": "Derive wrap_key = HKDF-SHA256(shared_secret, salt=ephemeral_pk || device_pk, info='mycelium-pdk-wrap-v1')"
+        },
+        {
+          "step": 4,
+          "action": "Decrypt: pdk_bytes = AEAD_decrypt(wrap_key, ciphertext, aad=project_id || pdk_version)"
+        },
+        {
+          "step": 5,
+          "action": "Return AeadKey from pdk_bytes"
+        }
+      ],
+      "errors": [
+        { "condition": "No WrappedPdk for device", "error": "AccessDenied" },
+        { "condition": "Decryption fails", "error": "DecryptionFailed (key mismatch or tampering)" }
+      ]
+    },
+
+    "pdk_versioning": {
+      "description": "Managing multiple PDK versions",
+      "model": {
+        "current_version": "Highest version number, used for new encryptions",
+        "historical_versions": "Kept to allow decrypting old secret set versions"
+      },
+      "storage": {
+        "path": ".mycelium/projects/<project-id>/pdk/v<N>.json",
+        "content": "PdkVersion with all wrapped keys for that version"
+      },
+      "version_number": {
+        "type": "u64",
+        "starts_at": 1,
+        "monotonic": true,
+        "never_reused": true
+      }
+    },
+
+    "pdk_rotation": {
+      "description": "Creating a new PDK version",
+      "triggers": [
+        { "trigger": "member_removed", "reason": "Revoke access to future secrets" },
+        { "trigger": "device_revoked", "reason": "Device compromise" },
+        { "trigger": "policy_scheduled", "reason": "Periodic rotation (e.g., 90 days)" },
+        { "trigger": "manual", "reason": "Admin decision or incident" }
+      ],
+      "process": [
+        "1. Generate new PDK (version N+1)",
+        "2. Get current membership list (excluding removed members if applicable)",
+        "3. Get all active devices for each member",
+        "4. Wrap new PDK to each device",
+        "5. Create PdkVersion record with all wrapped keys",
+        "6. Update project.current_pdk_version to N+1",
+        "7. Sign and commit to Git"
+      ],
+      "forward_secrecy_guarantee": "Removed members cannot decrypt any secret set version encrypted with PDK version > their last authorized version"
+    },
+
+    "adding_member": {
+      "description": "Granting access to existing secrets",
+      "process": [
+        "1. Get current PDK version",
+        "2. Admin's device unwraps PDK using own key",
+        "3. Get new member's devices and their pubkeys",
+        "4. Wrap PDK to each new device",
+        "5. Append WrappedPdk entries to current PdkVersion",
+        "6. Sign and commit"
+      ],
+      "notes": "New member can decrypt all versions using current PDK. Historical access is intentional—if you don't want them to see old secrets, rotate first."
+    },
+
+    "removing_member": {
+      "description": "Revoking access",
+      "process": [
+        "1. Trigger PDK rotation (see above)",
+        "2. Do NOT wrap new PDK to removed member's devices",
+        "3. Removed member can still decrypt old versions (using old PDK they already have cached)",
+        "4. Removed member CANNOT decrypt any new versions"
+      ],
+      "historical_access": {
+        "behavior": "Removed members retain ability to decrypt versions they previously had access to",
+        "rationale": "They already downloaded and decrypted that data; we can't unlearn it. Rotation prevents future access.",
+        "recommendation": "If old secrets are sensitive, rotate those secrets (change the actual values)"
+      }
+    },
+
+    "functions": {
+      "generate_pdk": {
+        "signature": "fn generate_pdk() -> AeadKey",
+        "behavior": "Generate fresh 32-byte random key"
+      },
+      "wrap_pdk": {
+        "signature": "fn wrap_pdk(pdk: &AeadKey, recipient_pubkey: &X25519PublicKey, project_id: &ProjectId, version: VersionNumber) -> Result<WrappedPdk>",
+        "behavior": "ECIES wrap as described above"
+      },
+      "unwrap_pdk": {
+        "signature": "fn unwrap_pdk(wrapped: &WrappedPdk, device_sk: &X25519SecretKey, device_pk: &X25519PublicKey, project_id: &ProjectId, version: VersionNumber) -> Result<AeadKey>",
+        "behavior": "ECIES unwrap as described above"
+      },
+      "wrap_pdk_to_devices": {
+        "signature": "fn wrap_pdk_to_devices(pdk: &AeadKey, devices: &[Device], project_id: &ProjectId, version: VersionNumber) -> Result<Vec<WrappedPdk>>",
+        "behavior": "Wrap PDK to multiple devices"
+      },
+      "create_pdk_version": {
+        "signature": "fn create_pdk_version(project_id: &ProjectId, version: VersionNumber, devices: &[Device], reason: Option<&str>, created_by: DeviceId) -> Result<PdkVersion>",
+        "behavior": "Generate PDK, wrap to all devices, return version record"
+      }
+    }
+  },
+
+  "caching": {
+    "description": "Clients may cache unwrapped PDKs in memory",
+    "rules": [
+      "Cache in memory only, never write unwrapped PDK to disk",
+      "Clear cache on profile switch",
+      "Clear cache after configurable idle timeout",
+      "PDKs in cache must be wrapped in Zeroize types"
+    ]
+  },
+
+  "security_considerations": [
+    {
+      "concern": "Ephemeral key reuse",
+      "mitigation": "Generate fresh ephemeral keypair for each wrap operation"
+    },
+    {
+      "concern": "PDK in memory",
+      "mitigation": "Wrap in Zeroize type; clear after use or on timeout"
+    },
+    {
+      "concern": "Admin collusion",
+      "mitigation": "Out of scope for v0; trust admins with current PDK access"
+    },
+    {
+      "concern": "Weak device keys",
+      "mitigation": "Use strong randomness from OS; Ed25519/X25519 are well-studied"
+    }
+  ],
+
+  "acceptance_criteria": [
+    "PDK generation produces 32 random bytes",
+    "Wrap then unwrap recovers original PDK",
+    "Unwrap fails with wrong device key",
+    "Unwrap fails if ciphertext is tampered",
+    "PDK rotation creates new version with higher number",
+    "Removed member's devices are not in new PDK version's wrapped keys",
+    "Adding member wraps current PDK to their devices",
+    "PDK types zeroize on drop"
+  ],
+
+  "open_questions": [
+    "Should we support wrapping PDK to external keys (e.g., HSM, YubiKey)?",
+    "Should we allow per-secret-set PDKs instead of per-project?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

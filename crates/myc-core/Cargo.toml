@@ -1,0 +1,27 @@
+[package]
+name = "myc-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Core domain types and business logic for Mycelium"
+
+[dependencies]
+# Workspace crates
+myc-crypto.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+time.workspace = true
+base64.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lib]
+doctest = false

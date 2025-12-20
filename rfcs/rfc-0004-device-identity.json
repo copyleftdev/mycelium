@@ -1,0 +1,269 @@
+{
+  "rfc_id": "RFC-0004",
+  "title": "Device Identity & Local Key Storage",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "identity",
+  "depends_on": ["RFC-0002", "RFC-0003"],
+  "summary": "Specifies device keypair generation, secure local storage on disk, the profile system for multiple vaults, and GitHub OAuth identity binding.",
+
+  "motivation": {
+    "problem": "Each device needs a unique cryptographic identity (Ed25519 for signing, X25519 for decryption). These keys must be stored securely on disk and associated with a GitHub identity. Users may work with multiple vaults.",
+    "solution": "Generate device keys on enrollment, store in platform-appropriate config directory with restrictive permissions, and manage multiple profiles for different GitHub vaults."
+  },
+
+  "design": {
+    "local_storage_layout": {
+      "description": "Files stored in user config directory",
+      "base_path": {
+        "linux": "~/.config/mycelium/",
+        "macos": "~/Library/Application Support/mycelium/",
+        "windows": "%APPDATA%\\mycelium\\"
+      },
+      "structure": [
+        {
+          "path": "config.json",
+          "purpose": "Global CLI config: default profile, UI preferences",
+          "encrypted": false
+        },
+        {
+          "path": "profiles/<profile-name>/profile.json",
+          "purpose": "Profile metadata: remote URL, org ID, user ID",
+          "encrypted": false
+        },
+        {
+          "path": "profiles/<profile-name>/device.json",
+          "purpose": "Device metadata: device ID, name, status",
+          "encrypted": false
+        },
+        {
+          "path": "profiles/<profile-name>/keys/signing.key",
+          "purpose": "Ed25519 secret key (encrypted at rest)",
+          "encrypted": true
+        },
+        {
+          "path": "profiles/<profile-name>/keys/encryption.key",
+          "purpose": "X25519 secret key (encrypted at rest)",
+          "encrypted": true
+        },
+        {
+          "path": "profiles/<profile-name>/keys/signing.pub",
+          "purpose": "Ed25519 public key",
+          "encrypted": false
+        },
+        {
+          "path": "profiles/<profile-name>/keys/encryption.pub",
+          "purpose": "X25519 public key",
+          "encrypted": false
+        },
+        {
+          "path": "profiles/<profile-name>/cache/",
+          "purpose": "Cached remote data (PDKs, metadata)",
+          "encrypted": false,
+          "notes": "Can be deleted; will re-fetch"
+        }
+      ],
+      "permissions": {
+        "directories": "0700 (rwx------)",
+        "key_files": "0600 (rw-------)",
+        "other_files": "0644 (rw-r--r--)"
+      }
+    },
+
+    "key_encryption_at_rest": {
+      "description": "Secret keys are encrypted before writing to disk",
+      "scheme": {
+        "kdf": "Argon2id",
+        "kdf_params": {
+          "m_cost": 65536,
+          "t_cost": 3,
+          "p_cost": 4
+        },
+        "aead": "ChaCha20-Poly1305",
+        "salt_size": 16,
+        "nonce_size": 12
+      },
+      "file_format": {
+        "description": "Binary format for encrypted key files",
+        "layout": [
+          { "field": "magic", "size": 4, "value": "MYC1" },
+          { "field": "version", "size": 1, "value": 1 },
+          { "field": "salt", "size": 16 },
+          { "field": "nonce", "size": 12 },
+          { "field": "ciphertext", "size": "remaining" }
+        ]
+      },
+      "passphrase_handling": {
+        "interactive": "Prompt user via dialoguer with hidden input",
+        "ci_mode": "Read from MYC_KEY_PASSPHRASE env var",
+        "empty_passphrase": "Allowed but warned; keys stored with empty-string derived key"
+      }
+    },
+
+    "device_enrollment_flow": {
+      "description": "Steps to enroll a new device",
+      "steps": [
+        {
+          "step": 1,
+          "action": "User runs `myc profile add <name> --remote <url>`"
+        },
+        {
+          "step": 2,
+          "action": "CLI initiates OIDC flow (browser redirect for interactive, token for CI)"
+        },
+        {
+          "step": 3,
+          "action": "CLI receives OIDC tokens, extracts subject (user_id)"
+        },
+        {
+          "step": 4,
+          "action": "CLI generates fresh Ed25519 + X25519 keypairs locally"
+        },
+        {
+          "step": 5,
+          "action": "CLI prompts for passphrase (optional) and encrypts keys to disk"
+        },
+        {
+          "step": 6,
+          "action": "CLI registers device with remote: sends pubkeys + device name + user_id"
+        },
+        {
+          "step": 7,
+          "action": "Remote returns device_id, stores Device record"
+        },
+        {
+          "step": 8,
+          "action": "CLI writes profile.json and device.json"
+        },
+        {
+          "step": 9,
+          "action": "If org requires approval, device is in PendingApproval status until admin approves"
+        }
+      ]
+    },
+
+    "profile_schema": {
+      "name": "Profile",
+      "fields": [
+        { "name": "name", "type": "String", "notes": "User-chosen profile name" },
+        { "name": "github_owner", "type": "String", "notes": "GitHub user or org owning the vault repo" },
+        { "name": "github_repo", "type": "String", "notes": "Vault repository name" },
+        { "name": "github_user_id", "type": "u64", "notes": "GitHub numeric user ID" },
+        { "name": "github_username", "type": "String", "notes": "GitHub username for display" },
+        { "name": "device_id", "type": "DeviceId" },
+        { "name": "created_at", "type": "OffsetDateTime" }
+      ]
+    },
+
+    "global_config_schema": {
+      "name": "GlobalConfig",
+      "fields": [
+        { "name": "default_profile", "type": "Option<String>" },
+        { "name": "json_output", "type": "bool", "default": false },
+        { "name": "color", "type": "ColorMode", "notes": "auto, always, never" }
+      ]
+    },
+
+    "github_oauth": {
+      "description": "GitHub OAuth for user authentication",
+      "oauth_app": {
+        "type": "OAuth App (user-scoped, simpler than GitHub App)",
+        "scopes": ["repo", "read:user", "user:email"],
+        "flow": "Device Authorization Grant (CLI-friendly)"
+      },
+      "device_flow_steps": [
+        "1. CLI calls POST https://github.com/login/device/code with client_id",
+        "2. GitHub returns device_code, user_code, verification_uri",
+        "3. CLI displays: 'Visit github.com/login/device and enter code: XXXX-XXXX'",
+        "4. User visits URL, enters code, authorizes app",
+        "5. CLI polls POST https://github.com/login/oauth/access_token until authorized",
+        "6. CLI receives access_token",
+        "7. CLI calls GET https://api.github.com/user to get user info"
+      ],
+      "token_storage": {
+        "access_token": "Stored in profile directory, encrypted at rest",
+        "notes": "GitHub OAuth tokens don't expire unless revoked; no refresh needed"
+      },
+      "user_id_derivation": "Use GitHub numeric user ID (stable, unique)"
+    },
+
+    "key_operations": {
+      "load_signing_key": {
+        "signature": "fn load_signing_key(profile: &str, passphrase: &str) -> Result<Ed25519SecretKey>",
+        "behavior": "Reads encrypted file, decrypts with passphrase, returns key"
+      },
+      "load_encryption_key": {
+        "signature": "fn load_encryption_key(profile: &str, passphrase: &str) -> Result<X25519SecretKey>",
+        "behavior": "Same as above for X25519"
+      },
+      "save_keypair": {
+        "signature": "fn save_keypair(profile: &str, signing: &Ed25519SecretKey, encryption: &X25519SecretKey, passphrase: &str) -> Result<()>",
+        "behavior": "Encrypts and writes both key files with proper permissions"
+      }
+    },
+
+    "profile_operations": {
+      "list_profiles": "fn list_profiles() -> Result<Vec<String>>",
+      "get_profile": "fn get_profile(name: &str) -> Result<Profile>",
+      "create_profile": "fn create_profile(profile: &Profile) -> Result<()>",
+      "delete_profile": "fn delete_profile(name: &str) -> Result<()>",
+      "get_default_profile": "fn get_default_profile() -> Result<Option<String>>",
+      "set_default_profile": "fn set_default_profile(name: &str) -> Result<()>"
+    },
+
+    "ci_headless_mode": {
+      "description": "For CI environments without interactive prompts",
+      "env_vars": [
+        { "name": "MYC_PROFILE", "purpose": "Override default profile" },
+        { "name": "MYC_KEY_PASSPHRASE", "purpose": "Passphrase for key decryption" },
+        { "name": "MYC_NON_INTERACTIVE", "purpose": "Disable all prompts, fail if input needed" }
+      ],
+      "github_actions_oidc": {
+        "description": "Native GitHub Actions authentication without stored secrets",
+        "how": "GitHub Actions can mint OIDC tokens that prove workflow identity",
+        "env_vars": ["ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL"],
+        "command": "myc ci auth --github-actions"
+      }
+    }
+  },
+
+  "security_considerations": [
+    {
+      "concern": "Key theft from disk",
+      "mitigation": "Keys encrypted with passphrase-derived key; restrictive file permissions"
+    },
+    {
+      "concern": "Passphrase in env var visible to other processes",
+      "mitigation": "Document risk; recommend secure secret injection in CI (e.g., GitHub secrets)"
+    },
+    {
+      "concern": "OIDC token theft",
+      "mitigation": "Short-lived access tokens; refresh tokens encrypted at rest"
+    },
+    {
+      "concern": "Device compromise",
+      "mitigation": "Device can be revoked; PDK rotation ensures future versions inaccessible"
+    }
+  ],
+
+  "acceptance_criteria": [
+    "Device enrollment creates keypairs and stores encrypted to disk",
+    "Keys decrypt correctly with correct passphrase",
+    "Keys fail to decrypt with wrong passphrase (error, not garbage)",
+    "File permissions are set correctly on Unix systems",
+    "Multiple profiles can coexist and be switched",
+    "Profile deletion removes all associated files",
+    "CI mode works with env vars, no prompts",
+    "OIDC flow completes and extracts user_id correctly"
+  ],
+
+  "open_questions": [
+    "Should we support hardware key storage (e.g., macOS Keychain, Windows DPAPI) in v0?",
+    "Should passphrase be cached in memory for session, or prompted on each operation?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

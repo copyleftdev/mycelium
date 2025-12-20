@@ -1,0 +1,283 @@
+{
+  "rfc_id": "RFC-0003",
+  "title": "Core Data Model & Serialization",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "foundation",
+  "depends_on": ["RFC-0001"],
+  "summary": "Defines the domain types in myc-core: Org, Project, SecretSet, Version, Device, Member, and their JSON serialization formats. These types represent the logical structure stored in Git remotes.",
+
+  "motivation": {
+    "problem": "Mycelium manages a hierarchy of entities (orgs → projects → secret sets → versions) with associated membership and device registrations. A clear, versioned data model is essential for interoperability, storage, and future migrations.",
+    "solution": "Define explicit Rust types with Serde serialization. All types are versioned with a schema_version field to enable forward-compatible evolution."
+  },
+
+  "design": {
+    "entity_hierarchy": {
+      "description": "Logical containment relationship",
+      "diagram": [
+        "Org",
+        "├── metadata (name, created, settings)",
+        "├── members[] (user → devices)",
+        "└── projects[]",
+        "    ├── metadata (name, created)",
+        "    ├── pdk_versions[] (wrapped keys)",
+        "    ├── members[] (role assignments)",
+        "    └── secret_sets[]",
+        "        └── versions[] (encrypted blobs)"
+      ]
+    },
+
+    "types": {
+      "identifiers": [
+        {
+          "name": "OrgId",
+          "inner": "Uuid",
+          "notes": "UUIDv4, generated on org init"
+        },
+        {
+          "name": "ProjectId",
+          "inner": "Uuid",
+          "notes": "UUIDv4, generated on project create"
+        },
+        {
+          "name": "SecretSetId",
+          "inner": "Uuid",
+          "notes": "UUIDv4, generated on set create"
+        },
+        {
+          "name": "DeviceId",
+          "inner": "Uuid",
+          "notes": "UUIDv4, generated on device enroll"
+        },
+        {
+          "name": "UserId",
+          "inner": "String",
+          "notes": "OIDC subject identifier (sub claim)"
+        },
+        {
+          "name": "VersionNumber",
+          "inner": "u64",
+          "notes": "Monotonically increasing, starts at 1"
+        }
+      ],
+
+      "org": {
+        "name": "Org",
+        "fields": [
+          { "name": "schema_version", "type": "u32", "default": 1 },
+          { "name": "id", "type": "OrgId" },
+          { "name": "name", "type": "String" },
+          { "name": "created_at", "type": "OffsetDateTime" },
+          { "name": "settings", "type": "OrgSettings" }
+        ]
+      },
+
+      "org_settings": {
+        "name": "OrgSettings",
+        "fields": [
+          { "name": "require_device_approval", "type": "bool", "default": false },
+          { "name": "github_org", "type": "Option<String>", "notes": "GitHub organization if vault is in an org" },
+          { "name": "default_rotation_policy", "type": "Option<RotationPolicy>" }
+        ]
+      },
+
+      "project": {
+        "name": "Project",
+        "fields": [
+          { "name": "schema_version", "type": "u32", "default": 1 },
+          { "name": "id", "type": "ProjectId" },
+          { "name": "org_id", "type": "OrgId" },
+          { "name": "name", "type": "String" },
+          { "name": "created_at", "type": "OffsetDateTime" },
+          { "name": "created_by", "type": "DeviceId" },
+          { "name": "current_pdk_version", "type": "VersionNumber" }
+        ]
+      },
+
+      "secret_set": {
+        "name": "SecretSet",
+        "fields": [
+          { "name": "schema_version", "type": "u32", "default": 1 },
+          { "name": "id", "type": "SecretSetId" },
+          { "name": "project_id", "type": "ProjectId" },
+          { "name": "name", "type": "String", "notes": "e.g., 'production', 'staging'" },
+          { "name": "created_at", "type": "OffsetDateTime" },
+          { "name": "created_by", "type": "DeviceId" },
+          { "name": "current_version", "type": "VersionNumber" }
+        ]
+      },
+
+      "secret_set_version": {
+        "name": "SecretSetVersion",
+        "fields": [
+          { "name": "schema_version", "type": "u32", "default": 1 },
+          { "name": "set_id", "type": "SecretSetId" },
+          { "name": "version", "type": "VersionNumber" },
+          { "name": "pdk_version", "type": "VersionNumber", "notes": "Which PDK version encrypted this" },
+          { "name": "created_at", "type": "OffsetDateTime" },
+          { "name": "created_by", "type": "DeviceId" },
+          { "name": "message", "type": "Option<String>", "notes": "Commit message / reason" },
+          { "name": "content_hash", "type": "HashOutput", "notes": "BLAKE3 of plaintext for integrity" },
+          { "name": "previous_hash", "type": "Option<HashOutput>", "notes": "Hash chain link" },
+          { "name": "ciphertext", "type": "Vec<u8>", "notes": "AEAD-encrypted secret data" },
+          { "name": "signature", "type": "Signature", "notes": "Ed25519 sig over canonical form" }
+        ]
+      },
+
+      "device": {
+        "name": "Device",
+        "fields": [
+          { "name": "schema_version", "type": "u32", "default": 1 },
+          { "name": "id", "type": "DeviceId" },
+          { "name": "user_id", "type": "UserId" },
+          { "name": "name", "type": "String", "notes": "Human-friendly device name" },
+          { "name": "device_type", "type": "DeviceType", "notes": "interactive, ci" },
+          { "name": "signing_pubkey", "type": "Ed25519PublicKey" },
+          { "name": "encryption_pubkey", "type": "X25519PublicKey" },
+          { "name": "enrolled_at", "type": "OffsetDateTime" },
+          { "name": "status", "type": "DeviceStatus", "notes": "active, pending_approval, revoked" },
+          { "name": "expires_at", "type": "Option<OffsetDateTime>", "notes": "For CI/contractor leases" }
+        ]
+      },
+
+      "device_type": {
+        "name": "DeviceType",
+        "variants": ["Interactive", "CI"]
+      },
+
+      "device_status": {
+        "name": "DeviceStatus",
+        "variants": ["Active", "PendingApproval", "Revoked"]
+      },
+
+      "member": {
+        "name": "ProjectMember",
+        "fields": [
+          { "name": "user_id", "type": "UserId" },
+          { "name": "role", "type": "Role" },
+          { "name": "added_at", "type": "OffsetDateTime" },
+          { "name": "added_by", "type": "DeviceId" }
+        ]
+      },
+
+      "role": {
+        "name": "Role",
+        "variants": [
+          { "name": "Owner", "permissions": ["all"] },
+          { "name": "Admin", "permissions": ["read", "write", "share", "rotate"] },
+          { "name": "Member", "permissions": ["read", "write"] },
+          { "name": "Reader", "permissions": ["read"] }
+        ]
+      },
+
+      "pdk_version": {
+        "name": "PdkVersion",
+        "description": "A versioned Project Data Key with wrapped copies for each authorized device",
+        "fields": [
+          { "name": "version", "type": "VersionNumber" },
+          { "name": "created_at", "type": "OffsetDateTime" },
+          { "name": "created_by", "type": "DeviceId" },
+          { "name": "reason", "type": "Option<String>", "notes": "e.g., 'member_removed', 'scheduled_rotation'" },
+          { "name": "wrapped_keys", "type": "Vec<WrappedPdk>" }
+        ]
+      },
+
+      "wrapped_pdk": {
+        "name": "WrappedPdk",
+        "description": "PDK encrypted to a specific device's X25519 pubkey",
+        "fields": [
+          { "name": "device_id", "type": "DeviceId" },
+          { "name": "ephemeral_pubkey", "type": "X25519PublicKey", "notes": "Sender's ephemeral for ECDH" },
+          { "name": "ciphertext", "type": "Vec<u8>", "notes": "AEAD(derived_key, pdk)" }
+        ]
+      },
+
+      
+      "rotation_policy": {
+        "name": "RotationPolicy",
+        "fields": [
+          { "name": "rotate_on_member_remove", "type": "bool", "default": true },
+          { "name": "max_age_days", "type": "Option<u32>" }
+        ]
+      }
+    },
+
+    "serialization": {
+      "format": "JSON with serde",
+      "conventions": [
+        "All timestamps are RFC 3339 strings",
+        "All binary data (keys, ciphertext, hashes) are base64-encoded",
+        "All enums serialize as lowercase strings",
+        "schema_version is always the first field"
+      ],
+      "example_secret_set_version": {
+        "schema_version": 1,
+        "set_id": "550e8400-e29b-41d4-a716-446655440000",
+        "version": 3,
+        "pdk_version": 2,
+        "created_at": "2025-12-05T14:30:00Z",
+        "created_by": "660e8400-e29b-41d4-a716-446655440001",
+        "message": "Add stripe API key",
+        "content_hash": "base64...",
+        "previous_hash": "base64...",
+        "ciphertext": "base64...",
+        "signature": "base64..."
+      }
+    },
+
+    "canonical_serialization": {
+      "description": "For signing, we need deterministic serialization",
+      "rules": [
+        "Sort object keys alphabetically",
+        "No whitespace between tokens",
+        "Use serde_json with sorted_keys feature or custom serializer"
+      ],
+      "sign_over": "canonical_json(object_without_signature_field)"
+    },
+
+    "validation": {
+      "description": "Each type should have a validate() method",
+      "rules": [
+        "Names must be non-empty, max 256 chars, valid slug characters",
+        "Timestamps must not be in the future",
+        "Version numbers must be positive",
+        "References (IDs) should be valid UUIDs"
+      ]
+    }
+  },
+
+  "module_structure": {
+    "myc_core_modules": [
+      { "name": "ids", "exports": ["OrgId", "ProjectId", "SecretSetId", "DeviceId", "UserId", "VersionNumber"] },
+      { "name": "org", "exports": ["Org", "OrgSettings"] },
+      { "name": "project", "exports": ["Project", "ProjectMember", "Role"] },
+      { "name": "secret_set", "exports": ["SecretSet", "SecretSetVersion"] },
+      { "name": "device", "exports": ["Device", "DeviceType", "DeviceStatus"] },
+      { "name": "pdk", "exports": ["PdkVersion", "WrappedPdk"] },
+      { "name": "remote", "exports": ["RemoteType"] },
+      { "name": "policy", "exports": ["RotationPolicy"] },
+      { "name": "canonical", "exports": ["to_canonical_json", "sign_payload", "verify_payload"] },
+      { "name": "error", "exports": ["CoreError", "ValidationError"] }
+    ]
+  },
+
+  "acceptance_criteria": [
+    "All types serialize to JSON and deserialize back identically",
+    "Canonical JSON is deterministic (same input = same output)",
+    "All ID types are distinct (cannot accidentally pass ProjectId where OrgId expected)",
+    "Validation catches invalid names, future timestamps, zero versions",
+    "Base64 encoding/decoding of binary fields works correctly",
+    "schema_version field is present in all serialized forms"
+  ],
+
+  "open_questions": [
+    "Should we encrypt secret set names (metadata privacy) or leave as plaintext in v0?",
+    "Should Device embed full pubkeys or reference a separate pubkey registry?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

@@ -1,0 +1,286 @@
+{
+  "rfc_id": "RFC-0009",
+  "title": "Key Rotation & Revocation",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "access",
+  "depends_on": ["RFC-0008", "RFC-0007"],
+  "summary": "Defines PDK rotation triggers, device revocation, forward secrecy guarantees, rotation policies, and audit records for rotation events.",
+
+  "motivation": {
+    "problem": "Security requires the ability to rotate keys when members leave, devices are compromised, or policies mandate periodic rotation. We need clear semantics for what rotation guarantees.",
+    "solution": "Define rotation as creating a new PDK version wrapped only to authorized devices. Revoked devices/members cannot access secrets encrypted with newer PDK versions."
+  },
+
+  "design": {
+    "rotation_triggers": {
+      "description": "Events that trigger PDK rotation",
+      "automatic": [
+        {
+          "trigger": "member_removed",
+          "description": "When a member is removed from project",
+          "rationale": "Removed member should not access future secrets"
+        },
+        {
+          "trigger": "device_revoked",
+          "description": "When any member's device is revoked",
+          "rationale": "Compromised device should not access future secrets"
+        },
+        {
+          "trigger": "policy_expiry",
+          "description": "When PDK age exceeds policy max_age_days",
+          "rationale": "Periodic rotation limits exposure window"
+        }
+      ],
+      "manual": [
+        {
+          "trigger": "admin_initiated",
+          "command": "myc rotate <project>",
+          "description": "Admin explicitly requests rotation",
+          "rationale": "Incident response, proactive security"
+        }
+      ]
+    },
+
+    "rotation_process": {
+      "description": "Steps to rotate PDK",
+      "steps": [
+        {
+          "step": 1,
+          "action": "Determine authorized devices: all active devices of current members"
+        },
+        {
+          "step": 2,
+          "action": "Generate new PDK (32 random bytes)"
+        },
+        {
+          "step": 3,
+          "action": "Assign version number = current_pdk_version + 1"
+        },
+        {
+          "step": 4,
+          "action": "Wrap new PDK to each authorized device"
+        },
+        {
+          "step": 5,
+          "action": "Create PdkVersion record with reason and wrapped keys"
+        },
+        {
+          "step": 6,
+          "action": "Update project.current_pdk_version"
+        },
+        {
+          "step": 7,
+          "action": "Sign all modified files"
+        },
+        {
+          "step": 8,
+          "action": "Create audit record"
+        },
+        {
+          "step": 9,
+          "action": "Commit and push"
+        }
+      ]
+    },
+
+    "device_revocation": {
+      "description": "Revoking a single device",
+      "who_can_revoke": [
+        "Device owner (revoking own device)",
+        "Org admin (revoking any device)",
+        "Project admin with 'rotate' permission (triggers project PDK rotation)"
+      ],
+      "process": [
+        {
+          "step": 1,
+          "action": "Mark device status = Revoked in device registry"
+        },
+        {
+          "step": 2,
+          "action": "For each project the device's owner is a member of: trigger PDK rotation"
+        },
+        {
+          "step": 3,
+          "action": "New PDK versions do not include revoked device"
+        },
+        {
+          "step": 4,
+          "action": "Create audit record for revocation"
+        }
+      ],
+      "notes": "Revoked device retains access to historical versions (PDKs it already had). This is by design—cannot un-know what was already decrypted."
+    },
+
+    "forward_secrecy_guarantees": {
+      "description": "What rotation guarantees",
+      "guarantees": [
+        {
+          "claim": "Revoked entities cannot decrypt new versions",
+          "because": "New PDK is not wrapped to their keys"
+        },
+        {
+          "claim": "Rotation is atomic per-project",
+          "because": "Single commit includes new PDK + membership state"
+        }
+      ],
+      "non_guarantees": [
+        {
+          "claim": "Historical versions remain accessible to previously-authorized",
+          "because": "Old PDK wrappers still exist in Git history"
+        },
+        {
+          "claim": "Cannot force-forget already-decrypted secrets",
+          "because": "Client may have cached plaintext locally"
+        }
+      ],
+      "recommendation": "If historical secrets are sensitive after compromise, rotate the actual secret values (e.g., change the database password)"
+    },
+
+    "rotation_policies": {
+      "description": "Configurable automatic rotation",
+      "schema": {
+        "rotate_on_member_remove": {
+          "type": "bool",
+          "default": true,
+          "description": "Auto-rotate when member is removed"
+        },
+        "rotate_on_device_revoke": {
+          "type": "bool",
+          "default": true,
+          "description": "Auto-rotate when device is revoked"
+        },
+        "max_age_days": {
+          "type": "Option<u32>",
+          "default": null,
+          "description": "Rotate if PDK is older than this many days"
+        },
+        "notify_before_expiry_days": {
+          "type": "Option<u32>",
+          "default": 7,
+          "description": "Warn admins this many days before scheduled rotation"
+        }
+      },
+      "storage": "In project.json or org-level default"
+    },
+
+    "scheduled_rotation": {
+      "description": "Handling policy-based periodic rotation",
+      "detection": [
+        "On any operation, check if current PDK age > max_age_days",
+        "If yes, require rotation before proceeding (or auto-rotate if actor has permission)"
+      ],
+      "cron_alternative": "Users can set up external cron to run `myc rotate --if-due <project>`"
+    },
+
+    "audit_records": {
+      "description": "Audit entries for rotation events",
+      "rotation_audit": {
+        "type": "pdk_rotated",
+        "fields": {
+          "project_id": "UUID",
+          "old_version": "u64",
+          "new_version": "u64",
+          "reason": "member_removed|device_revoked|policy|manual",
+          "triggered_by": "DeviceId",
+          "excluded_devices": ["DeviceId"],
+          "excluded_users": ["UserId"],
+          "timestamp": "RFC3339"
+        }
+      },
+      "revocation_audit": {
+        "type": "device_revoked",
+        "fields": {
+          "device_id": "UUID",
+          "user_id": "UserId",
+          "revoked_by": "DeviceId",
+          "reason": "Option<String>",
+          "timestamp": "RFC3339"
+        }
+      }
+    },
+
+    "emergency_rotation": {
+      "description": "Incident response rotation",
+      "command": "myc rotate <project> --reason incident --note 'description'",
+      "behavior": [
+        "Immediate rotation regardless of policy",
+        "Audit note included in record",
+        "Optional: specify devices to exclude beyond normal revocations"
+      ],
+      "best_practice": "After incident rotation, change actual secret values"
+    },
+
+    "bulk_rotation": {
+      "description": "Rotating multiple projects at once",
+      "command": "myc rotate --all-projects",
+      "use_case": "Org-wide incident response",
+      "behavior": "Iterate projects, rotate each, report successes/failures"
+    },
+
+    "re_encryption": {
+      "description": "Whether old secret set versions are re-encrypted",
+      "default_behavior": "No—old versions stay encrypted with old PDKs",
+      "rationale": "Re-encrypting all history is expensive and doesn't add security (old keys already exposed)",
+      "optional_behavior": "Future: myc re-encrypt <project> --all-versions for full history re-encryption"
+    }
+  },
+
+  "functions": {
+    "rotate_pdk": {
+      "signature": "fn rotate_pdk(project_id: &ProjectId, reason: RotationReason, device: &DeviceContext) -> Result<VersionNumber>",
+      "behavior": "Perform full rotation, return new version number"
+    },
+    "revoke_device": {
+      "signature": "fn revoke_device(device_id: &DeviceId, reason: Option<&str>, actor: &DeviceContext) -> Result<()>",
+      "behavior": "Mark device revoked, trigger rotations for affected projects"
+    },
+    "check_rotation_due": {
+      "signature": "fn check_rotation_due(project_id: &ProjectId) -> Result<Option<RotationReason>>",
+      "behavior": "Check if rotation is due per policy, return reason if so"
+    },
+    "rotate_if_due": {
+      "signature": "fn rotate_if_due(project_id: &ProjectId, device: &DeviceContext) -> Result<Option<VersionNumber>>",
+      "behavior": "Rotate if policy requires, return new version if rotated"
+    }
+  },
+
+  "cli_commands": {
+    "rotate": {
+      "usage": "myc rotate <project> [--reason <reason>] [--note <text>]",
+      "options": [
+        "--reason: member_removed|device_revoked|policy|incident|manual",
+        "--note: free-text explanation for audit"
+      ]
+    },
+    "device_revoke": {
+      "usage": "myc device revoke <device-id> [--reason <text>]",
+      "notes": "Will trigger rotation for all affected projects"
+    },
+    "rotation_status": {
+      "usage": "myc project rotation-status <project>",
+      "output": "Current PDK version, age, policy, next scheduled rotation"
+    }
+  },
+
+  "acceptance_criteria": [
+    "Rotation creates new PDK version with higher number",
+    "Removed member's devices not in new PDK wrapped keys",
+    "Revoked device not in new PDK wrapped keys",
+    "Policy-based rotation triggers when age exceeds threshold",
+    "Audit records created for all rotations",
+    "Emergency rotation with note works",
+    "Bulk rotation iterates all projects",
+    "Old versions remain decryptable with old PDK"
+  ],
+
+  "open_questions": [
+    "Should we support 'break glass' admin recovery that bypasses normal rotation?",
+    "Should rotation require multi-party approval for sensitive projects?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

@@ -1,0 +1,289 @@
+{
+  "rfc_id": "RFC-0002",
+  "title": "Cryptographic Primitives Layer",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "foundation",
+  "depends_on": ["RFC-0001"],
+  "summary": "Specifies the myc-crypto crate: wrapper types and functions for ChaCha20-Poly1305 AEAD, X25519 key agreement, Ed25519 signatures, HKDF key derivation, and BLAKE3 hashing. All key material is zeroized on drop.",
+
+  "motivation": {
+    "problem": "Mycelium requires multiple cryptographic operations that must be composed correctly: encryption, key wrapping, signing, and hashing. Raw crypto libraries expose low-level APIs that are easy to misuse.",
+    "solution": "Provide a thin, opinionated wrapper layer in myc-crypto that enforces correct usage patterns, handles nonce generation, and ensures all sensitive material is zeroized."
+  },
+
+  "design": {
+    "module_structure": {
+      "description": "myc-crypto internal modules",
+      "modules": [
+        {
+          "name": "aead",
+          "purpose": "ChaCha20-Poly1305 authenticated encryption",
+          "exports": ["encrypt", "decrypt", "AeadKey", "Nonce", "NONCE_SIZE", "TAG_SIZE"]
+        },
+        {
+          "name": "kex",
+          "purpose": "X25519 key exchange / agreement",
+          "exports": ["X25519SecretKey", "X25519PublicKey", "SharedSecret", "generate_x25519_keypair", "diffie_hellman"]
+        },
+        {
+          "name": "sign",
+          "purpose": "Ed25519 signatures",
+          "exports": ["Ed25519SecretKey", "Ed25519PublicKey", "Signature", "generate_ed25519_keypair", "sign", "verify"]
+        },
+        {
+          "name": "kdf",
+          "purpose": "HKDF-SHA256 key derivation",
+          "exports": ["derive_key", "DerivedKey"]
+        },
+        {
+          "name": "hash",
+          "purpose": "BLAKE3 hashing and hash chains",
+          "exports": ["hash", "HashOutput", "Hasher", "chain_hash"]
+        },
+        {
+          "name": "random",
+          "purpose": "Secure random byte generation",
+          "exports": ["fill_random", "generate_random_bytes"]
+        },
+        {
+          "name": "error",
+          "purpose": "Crypto error types",
+          "exports": ["CryptoError", "Result"]
+        }
+      ]
+    },
+
+    "types": {
+      "key_types": [
+        {
+          "name": "AeadKey",
+          "inner": "[u8; 32]",
+          "traits": ["Zeroize", "ZeroizeOnDrop", "Clone"],
+          "notes": "Wrapped in secrecy::SecretBox for debug safety. Clone is explicit, not Copy."
+        },
+        {
+          "name": "X25519SecretKey",
+          "inner": "x25519_dalek::StaticSecret",
+          "traits": ["Zeroize", "ZeroizeOnDrop"],
+          "notes": "No Clone—secret keys should not be duplicated casually."
+        },
+        {
+          "name": "X25519PublicKey",
+          "inner": "x25519_dalek::PublicKey",
+          "traits": ["Clone", "Copy", "Eq", "Serialize", "Deserialize"],
+          "notes": "32 bytes, safe to share."
+        },
+        {
+          "name": "Ed25519SecretKey",
+          "inner": "ed25519_dalek::SigningKey",
+          "traits": ["Zeroize", "ZeroizeOnDrop"],
+          "notes": "No Clone."
+        },
+        {
+          "name": "Ed25519PublicKey",
+          "inner": "ed25519_dalek::VerifyingKey",
+          "traits": ["Clone", "Copy", "Eq", "Serialize", "Deserialize"],
+          "notes": "32 bytes, safe to share."
+        },
+        {
+          "name": "SharedSecret",
+          "inner": "[u8; 32]",
+          "traits": ["Zeroize", "ZeroizeOnDrop"],
+          "notes": "Result of X25519 DH. Should be passed to KDF, never used directly as key."
+        },
+        {
+          "name": "Signature",
+          "inner": "ed25519_dalek::Signature",
+          "traits": ["Clone", "Copy", "Eq", "Serialize", "Deserialize"],
+          "notes": "64 bytes."
+        },
+        {
+          "name": "Nonce",
+          "inner": "[u8; 12]",
+          "traits": ["Clone", "Copy"],
+          "notes": "12-byte nonce for ChaCha20-Poly1305. Generated randomly per encryption."
+        },
+        {
+          "name": "HashOutput",
+          "inner": "[u8; 32]",
+          "traits": ["Clone", "Copy", "Eq", "Serialize", "Deserialize"],
+          "notes": "BLAKE3 output."
+        }
+      ]
+    },
+
+    "functions": {
+      "aead": [
+        {
+          "name": "encrypt",
+          "signature": "fn encrypt(key: &AeadKey, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>>",
+          "behavior": "Generates random 12-byte nonce, encrypts plaintext, returns nonce || ciphertext || tag",
+          "notes": "Output is nonce (12) + ciphertext (len(plaintext)) + tag (16)"
+        },
+        {
+          "name": "decrypt",
+          "signature": "fn decrypt(key: &AeadKey, ciphertext_with_nonce: &[u8], aad: &[u8]) -> Result<Vec<u8>>",
+          "behavior": "Parses nonce from first 12 bytes, verifies tag, returns plaintext",
+          "notes": "Returns CryptoError::DecryptionFailed on auth failure (constant-time)"
+        }
+      ],
+      "kex": [
+        {
+          "name": "generate_x25519_keypair",
+          "signature": "fn generate_x25519_keypair() -> (X25519SecretKey, X25519PublicKey)",
+          "behavior": "Generates fresh keypair from OS randomness"
+        },
+        {
+          "name": "diffie_hellman",
+          "signature": "fn diffie_hellman(secret: &X25519SecretKey, public: &X25519PublicKey) -> SharedSecret",
+          "behavior": "Computes X25519 shared secret. Caller MUST use KDF on result."
+        }
+      ],
+      "sign": [
+        {
+          "name": "generate_ed25519_keypair",
+          "signature": "fn generate_ed25519_keypair() -> (Ed25519SecretKey, Ed25519PublicKey)",
+          "behavior": "Generates fresh signing keypair from OS randomness"
+        },
+        {
+          "name": "sign",
+          "signature": "fn sign(key: &Ed25519SecretKey, message: &[u8]) -> Signature",
+          "behavior": "Signs message, returns 64-byte signature"
+        },
+        {
+          "name": "verify",
+          "signature": "fn verify(key: &Ed25519PublicKey, message: &[u8], signature: &Signature) -> Result<()>",
+          "behavior": "Verifies signature, returns Ok(()) or CryptoError::InvalidSignature"
+        }
+      ],
+      "kdf": [
+        {
+          "name": "derive_key",
+          "signature": "fn derive_key(ikm: &[u8], salt: &[u8], info: &[u8], len: usize) -> Vec<u8>",
+          "behavior": "HKDF-SHA256 extract-and-expand. Returns `len` bytes of derived key material.",
+          "notes": "Used to derive AEAD keys from shared secrets. Info should include domain separation."
+        },
+        {
+          "name": "derive_aead_key",
+          "signature": "fn derive_aead_key(shared_secret: &SharedSecret, context: &[u8]) -> AeadKey",
+          "behavior": "Convenience: derives a 32-byte AeadKey from shared secret with context as info"
+        }
+      ],
+      "hash": [
+        {
+          "name": "hash",
+          "signature": "fn hash(data: &[u8]) -> HashOutput",
+          "behavior": "BLAKE3 hash of input"
+        },
+        {
+          "name": "chain_hash",
+          "signature": "fn chain_hash(previous: &HashOutput, current: &[u8]) -> HashOutput",
+          "behavior": "hash(previous || current) for hash chains"
+        },
+        {
+          "name": "Hasher",
+          "signature": "struct Hasher (streaming)",
+          "behavior": "Incremental BLAKE3 hasher for large inputs"
+        }
+      ],
+      "random": [
+        {
+          "name": "fill_random",
+          "signature": "fn fill_random(dest: &mut [u8])",
+          "behavior": "Fills buffer with OS random bytes via getrandom"
+        },
+        {
+          "name": "generate_random_bytes",
+          "signature": "fn generate_random_bytes<const N: usize>() -> [u8; N]",
+          "behavior": "Returns fixed-size random array"
+        }
+      ]
+    },
+
+    "error_types": {
+      "CryptoError": {
+        "variants": [
+          { "name": "DecryptionFailed", "description": "AEAD authentication failed" },
+          { "name": "InvalidSignature", "description": "Ed25519 signature verification failed" },
+          { "name": "InvalidKeyLength", "description": "Key material wrong size" },
+          { "name": "RandomnessFailure", "description": "OS RNG unavailable (fatal)" }
+        ]
+      }
+    },
+
+    "security_requirements": [
+      {
+        "req": "All secret key types MUST implement Zeroize and ZeroizeOnDrop",
+        "rationale": "Prevent key material from lingering in memory after use"
+      },
+      {
+        "req": "Secret key types MUST NOT implement Debug that reveals key bytes",
+        "rationale": "Prevent accidental logging of secrets"
+      },
+      {
+        "req": "Nonces MUST be randomly generated per encryption, never reused",
+        "rationale": "Nonce reuse breaks ChaCha20-Poly1305 security"
+      },
+      {
+        "req": "SharedSecret MUST be passed through KDF before use as encryption key",
+        "rationale": "Raw DH output should not be used directly; KDF adds domain separation"
+      },
+      {
+        "req": "All comparisons of MACs/signatures MUST be constant-time",
+        "rationale": "Prevent timing attacks (handled by underlying libraries)"
+      },
+      {
+        "req": "Crate MUST NOT log or print any key material",
+        "rationale": "Defense in depth against accidental exposure"
+      }
+    ],
+
+    "testing_requirements": [
+      "Roundtrip tests: encrypt then decrypt recovers plaintext",
+      "Tamper tests: modified ciphertext fails decryption",
+      "Signature roundtrip: sign then verify succeeds",
+      "Signature tamper: modified message fails verification",
+      "KDF determinism: same inputs produce same outputs",
+      "Hash determinism: same inputs produce same hash",
+      "Known-answer tests against test vectors where available"
+    ]
+  },
+
+  "public_api_surface": {
+    "description": "What myc-crypto exposes at crate root",
+    "re_exports": [
+      "AeadKey", "Nonce",
+      "X25519SecretKey", "X25519PublicKey", "SharedSecret",
+      "Ed25519SecretKey", "Ed25519PublicKey", "Signature",
+      "HashOutput", "Hasher",
+      "CryptoError", "Result",
+      "aead::{encrypt, decrypt}",
+      "kex::{generate_x25519_keypair, diffie_hellman}",
+      "sign::{generate_ed25519_keypair, sign, verify}",
+      "kdf::{derive_key, derive_aead_key}",
+      "hash::{hash, chain_hash}",
+      "random::{fill_random, generate_random_bytes}"
+    ]
+  },
+
+  "acceptance_criteria": [
+    "All encrypt/decrypt roundtrips pass",
+    "All sign/verify roundtrips pass",
+    "Tampering with ciphertext returns DecryptionFailed error",
+    "Tampering with signed message returns InvalidSignature error",
+    "Dropping a secret key type zeroizes memory (can verify via miri or manual inspection)",
+    "No secret key bytes appear in Debug output",
+    "cargo test --release passes (tests not debug-only)",
+    "No unsafe code in crate (or explicitly audited if necessary)"
+  ],
+
+  "open_questions": [
+    "Should we expose raw primitives or only composed operations (e.g., seal/open that combines DH + KDF + AEAD)?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

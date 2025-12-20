@@ -1,0 +1,43 @@
+# Example .myc.yaml configuration file for the myc run command
+#
+# This file can be placed in your project directory to provide defaults
+# for the myc CLI commands, including the new 'myc run' command.
+
+# Vault repository (owner/repo format)
+vault: myorg/secrets-vault
+
+# Default project name or ID
+project: api
+
+# Default secret set name or ID  
+set: production
+
+# Default export format for pull command (dotenv, json, shell, yaml)
+export_format: dotenv
+
+# Default output file for pull command
+output_file: .env
+
+# Usage examples:
+#
+# With this configuration file in your project directory:
+#
+# 1. Run a command with secrets injected:
+#    myc run npm start
+#    myc run python app.py
+#    myc run docker-compose up
+#
+# 2. Override defaults:
+#    myc run --project staging --set development npm test
+#    myc run --version 42 python manage.py migrate
+#
+# 3. Run commands with complex arguments:
+#    myc run curl -X POST -H "Content-Type: application/json" -d '{"key":"value"}' https://api.example.com
+#    myc run -- python -c "import os; print(os.environ.get('DATABASE_URL'))"
+#
+# The myc run command will:
+# - Pull secrets from the specified project/set
+# - Inject them as environment variables
+# - Execute the command with the injected environment
+# - Never write secrets to disk
+# - Exit with the same code as the subprocess

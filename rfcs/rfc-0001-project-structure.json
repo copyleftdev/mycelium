@@ -1,0 +1,212 @@
+{
+  "rfc_id": "RFC-0001",
+  "title": "Project Structure & Crate Architecture",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "foundation",
+  "depends_on": [],
+  "summary": "Defines the cargo workspace layout, crate boundaries, coding conventions, and dependency policy for the Mycelium project.",
+
+  "motivation": {
+    "problem": "Mycelium spans multiple concerns: cryptographic operations, data models, CLI interface, and GitHub API integration. A monolithic crate would conflate these concerns and make testing and auditing difficult.",
+    "solution": "Organize as a Cargo workspace with focused crates that enforce separation of concerns through module boundaries and explicit public APIs."
+  },
+
+  "design": {
+    "workspace_layout": {
+      "description": "Root workspace with multiple member crates",
+      "structure": [
+        {
+          "path": "Cargo.toml",
+          "type": "workspace_root",
+          "purpose": "Defines workspace members and shared dependency versions"
+        },
+        {
+          "path": "crates/myc-crypto/",
+          "type": "library",
+          "purpose": "Cryptographic primitives and operations. Zero external I/O. Pure functions over byte slices and key types."
+        },
+        {
+          "path": "crates/myc-core/",
+          "type": "library",
+          "purpose": "Domain types (Org, Project, SecretSet, etc.), serialization, and business logic. Depends on myc-crypto."
+        },
+        {
+          "path": "crates/myc-github/",
+          "type": "library",
+          "purpose": "GitHub API client. OAuth device flow, repo operations, Actions OIDC validation. No crypto—just transport."
+        },
+        {
+          "path": "crates/myc-cli/",
+          "type": "binary",
+          "purpose": "The `myc` CLI binary. Wires together core, crypto, and github crates. Handles profiles, output formatting."
+        },
+        {
+          "path": "crates/myc-test-utils/",
+          "type": "dev-library",
+          "purpose": "Shared test fixtures, mock GitHub responses, key generation helpers."
+        }
+      ]
+    },
+
+    "crate_dependencies": {
+      "description": "Directed acyclic dependency graph between crates",
+      "graph": {
+        "myc-crypto": [],
+        "myc-core": ["myc-crypto"],
+        "myc-github": [],
+        "myc-cli": ["myc-core", "myc-crypto", "myc-github"],
+        "myc-test-utils": ["myc-crypto", "myc-core"]
+      },
+      "rules": [
+        "myc-crypto MUST NOT depend on any other workspace crate",
+        "myc-github MUST NOT depend on myc-crypto (it handles only ciphertext bytes and API calls)",
+        "myc-core MUST NOT perform I/O; all I/O is injected or handled by CLI",
+        "myc-cli is the composition root for the CLI binary"
+      ]
+    },
+
+    "external_dependencies": {
+      "policy": "No unvetted crates. Prefer RustCrypto ecosystem, dalek, and well-audited foundational crates.",
+      "by_crate": {
+        "myc-crypto": {
+          "deps": [
+            { "name": "chacha20poly1305", "version": "0.10", "purpose": "AEAD encryption" },
+            { "name": "x25519-dalek", "version": "2", "purpose": "Key agreement" },
+            { "name": "ed25519-dalek", "version": "2", "purpose": "Signatures" },
+            { "name": "hkdf", "version": "0.12", "purpose": "Key derivation" },
+            { "name": "sha2", "version": "0.10", "purpose": "HKDF hash" },
+            { "name": "blake3", "version": "1", "purpose": "Hash chains, checksums" },
+            { "name": "rand_core", "version": "0.6", "purpose": "RNG traits" },
+            { "name": "getrandom", "version": "0.2", "purpose": "OS randomness" },
+            { "name": "zeroize", "version": "1", "features": ["derive"], "purpose": "Secure memory clearing" },
+            { "name": "secrecy", "version": "0.8", "purpose": "Secret-holding wrapper types" },
+            { "name": "thiserror", "version": "1", "purpose": "Error types" }
+          ]
+        },
+        "myc-core": {
+          "deps": [
+            { "name": "serde", "version": "1", "features": ["derive"], "purpose": "Serialization" },
+            { "name": "serde_json", "version": "1", "purpose": "JSON format" },
+            { "name": "uuid", "version": "1", "features": ["v4", "serde"], "purpose": "Identifiers" },
+            { "name": "time", "version": "0.3", "features": ["serde"], "purpose": "Timestamps" },
+            { "name": "thiserror", "version": "1", "purpose": "Error types" },
+            { "name": "base64", "version": "0.21", "purpose": "Encoding" }
+          ]
+        },
+        "myc-github": {
+          "deps": [
+            { "name": "reqwest", "version": "0.11", "features": ["json", "rustls-tls"], "purpose": "HTTP client" },
+            { "name": "octocrab", "version": "0.32", "purpose": "GitHub API client" },
+            { "name": "jsonwebtoken", "version": "9", "purpose": "JWT validation for OIDC" },
+            { "name": "serde", "version": "1", "features": ["derive"], "purpose": "API response parsing" },
+            { "name": "serde_json", "version": "1", "purpose": "JSON handling" },
+            { "name": "thiserror", "version": "1", "purpose": "Error types" },
+            { "name": "tracing", "version": "0.1", "purpose": "Logging" },
+            { "name": "tokio", "version": "1", "purpose": "Async runtime" },
+            { "name": "base64", "version": "0.21", "purpose": "Content encoding" }
+          ]
+        },
+        "myc-cli": {
+          "deps": [
+            { "name": "tokio", "version": "1", "features": ["full"], "purpose": "Async runtime" },
+            { "name": "clap", "version": "4", "features": ["derive"], "purpose": "Argument parsing" },
+            { "name": "dialoguer", "version": "0.11", "purpose": "Interactive prompts" },
+            { "name": "console", "version": "0.15", "purpose": "Terminal styling" },
+            { "name": "dirs", "version": "5", "purpose": "Platform directories" },
+            { "name": "tracing", "version": "0.1", "purpose": "Logging" },
+            { "name": "tracing-subscriber", "version": "0.3", "purpose": "Log output" },
+            { "name": "anyhow", "version": "1", "purpose": "Error handling" }
+          ]
+        }
+      }
+    },
+
+    "coding_conventions": {
+      "formatting": "rustfmt with default settings; enforced in CI",
+      "linting": "clippy with #![deny(clippy::all)] in each crate root",
+      "documentation": "All public items MUST have doc comments; #![deny(missing_docs)] in library crates",
+      "error_handling": {
+        "libraries": "Use thiserror for typed errors; no panics in library code except for impossible states",
+        "binaries": "Use anyhow for CLI; convert library errors at boundaries"
+      },
+      "testing": {
+        "unit_tests": "In-module #[cfg(test)] for private function tests",
+        "integration_tests": "tests/ directory per crate for public API tests",
+        "property_tests": "Use proptest for crypto and serialization roundtrips"
+      },
+      "unsafe_policy": "No unsafe in application code; audit any unsafe in dependencies via cargo-vet"
+    },
+
+    "ci_tooling": {
+      "required_checks": [
+        "cargo fmt --check",
+        "cargo clippy --all-targets --all-features -- -D warnings",
+        "cargo test --all",
+        "cargo audit",
+        "cargo deny check"
+      ],
+      "supply_chain": {
+        "cargo-vet": "All dependencies must be vetted or exempted with rationale",
+        "cargo-audit": "Block on known vulnerabilities",
+        "cargo-deny": "Block duplicate versions, unwanted licenses"
+      }
+    }
+  },
+
+  "file_structure": {
+    "description": "Complete directory tree after RFC-0001 implementation",
+    "tree": [
+      "mycelium/",
+      "├── Cargo.toml                    # Workspace root",
+      "├── Cargo.lock",
+      "├── .cargo/",
+      "│   └── config.toml              # Workspace-wide cargo settings",
+      "├── deny.toml                    # cargo-deny config",
+      "├── rust-toolchain.toml          # Pin Rust version",
+      "├── .github/",
+      "│   └── workflows/",
+      "│       └── ci.yml               # CI pipeline",
+      "├── crates/",
+      "│   ├── myc-crypto/",
+      "│   │   ├── Cargo.toml",
+      "│   │   └── src/",
+      "│   │       └── lib.rs",
+      "│   ├── myc-core/",
+      "│   │   ├── Cargo.toml",
+      "│   │   └── src/",
+      "│   │       └── lib.rs",
+      "│   ├── myc-github/",
+      "│   │   ├── Cargo.toml",
+      "│   │   └── src/",
+      "│   │       └── lib.rs",
+      "│   ├── myc-cli/",
+      "│   │   ├── Cargo.toml",
+      "│   │   └── src/",
+      "│   │       └── main.rs",
+      "│   └── myc-test-utils/",
+      "│       ├── Cargo.toml",
+      "│       └── src/",
+      "│           └── lib.rs",
+      "├── rfcs/                         # This RFC directory",
+      "└── README.md"
+    ]
+  },
+
+  "acceptance_criteria": [
+    "Running `cargo build --workspace` succeeds with no warnings",
+    "Running `cargo test --workspace` succeeds",
+    "Running `cargo clippy --workspace --all-targets` produces no warnings",
+    "Each library crate compiles with #![deny(missing_docs)]",
+    "myc-crypto has zero dependencies on other workspace crates",
+    "myc-github has zero dependencies on myc-crypto or myc-core",
+    "CI workflow passes all checks on a fresh clone"
+  ],
+
+  "open_questions": [],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

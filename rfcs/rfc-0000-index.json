@@ -1,0 +1,147 @@
+{
+  "meta": {
+    "project": "mycelium",
+    "type": "rfc-index",
+    "generated": "2025-12-05",
+    "description": "Index of all Mycelium RFCs. Each RFC is a self-contained design document that builds on previous RFCs.",
+    "total_rfcs": 15,
+    "milestones": 8
+  },
+  "rfc_sequence": [
+    {
+      "rfc_id": "RFC-0001",
+      "title": "Project Structure & Crate Architecture",
+      "status": "draft",
+      "phase": "foundation",
+      "depends_on": [],
+      "summary": "Defines the cargo workspace layout, crate boundaries, and coding conventions for the Mycelium CLI."
+    },
+    {
+      "rfc_id": "RFC-0002",
+      "title": "Cryptographic Primitives Layer",
+      "status": "draft",
+      "phase": "foundation",
+      "depends_on": ["RFC-0001"],
+      "summary": "Specifies the crypto primitive wrappers: ChaCha20-Poly1305 AEAD, X25519 key agreement, Ed25519 signatures, HKDF, BLAKE3 hashing, and zeroization requirements."
+    },
+    {
+      "rfc_id": "RFC-0003",
+      "title": "Core Data Model & Serialization",
+      "status": "draft",
+      "phase": "foundation",
+      "depends_on": ["RFC-0001"],
+      "summary": "Defines the domain types: Org, Project, SecretSet, Version, Device, Member, and their serialization formats."
+    },
+    {
+      "rfc_id": "RFC-0004",
+      "title": "Device Identity & Local Key Storage",
+      "status": "draft",
+      "phase": "identity",
+      "depends_on": ["RFC-0002", "RFC-0003"],
+      "summary": "Specifies device keypair generation (Ed25519 + X25519), secure local storage, profile system, and GitHub OAuth binding."
+    },
+    {
+      "rfc_id": "RFC-0005",
+      "title": "GitHub Backend Protocol",
+      "status": "draft",
+      "phase": "storage",
+      "depends_on": ["RFC-0003"],
+      "summary": "Defines how Mycelium leverages GitHub as the complete backend: repository storage, GitHub API for operations, OAuth for auth, and Actions OIDC for CI."
+    },
+    {
+      "rfc_id": "RFC-0006",
+      "title": "Envelope Encryption & PDK Lifecycle",
+      "status": "draft",
+      "phase": "crypto",
+      "depends_on": ["RFC-0002", "RFC-0004"],
+      "summary": "Specifies Project Data Key (PDK) generation, wrapping PDKs to device pubkeys, unwrapping, and the versioned PDK model."
+    },
+    {
+      "rfc_id": "RFC-0007",
+      "title": "Secret Set Encryption & Versioning",
+      "status": "draft",
+      "phase": "crypto",
+      "depends_on": ["RFC-0006", "RFC-0005"],
+      "summary": "Defines how secret sets are encrypted with PDKs, version numbering, content-addressable storage, and integrity verification."
+    },
+    {
+      "rfc_id": "RFC-0008",
+      "title": "Membership & Access Control",
+      "status": "draft",
+      "phase": "access",
+      "depends_on": ["RFC-0006", "RFC-0003"],
+      "summary": "Specifies roles (owner, admin, member, reader), membership mutations, and how PDK wrappers are managed per-member."
+    },
+    {
+      "rfc_id": "RFC-0009",
+      "title": "Key Rotation & Revocation",
+      "status": "draft",
+      "phase": "access",
+      "depends_on": ["RFC-0008", "RFC-0007"],
+      "summary": "Defines PDK rotation on membership removal, device revocation, forward secrecy guarantees, and rotation audit records."
+    },
+    {
+      "rfc_id": "RFC-0010",
+      "title": "CLI Architecture & Command Surface",
+      "status": "draft",
+      "phase": "cli",
+      "depends_on": ["RFC-0004", "RFC-0005", "RFC-0007", "RFC-0008"],
+      "summary": "Specifies the myc CLI structure, subcommand taxonomy, profile switching, output formats (human/JSON), and exit codes."
+    },
+    {
+      "rfc_id": "RFC-0011",
+      "title": "GitHub Actions CI Integration",
+      "status": "draft",
+      "phase": "ci",
+      "depends_on": ["RFC-0004", "RFC-0008"],
+      "summary": "Defines GitHub Actions OIDC-based authentication for CI workflows. Workflows can pull secrets without stored credentials."
+    },
+    {
+      "rfc_id": "RFC-0012",
+      "title": "Audit Log & Integrity Verification",
+      "status": "draft",
+      "phase": "audit",
+      "depends_on": ["RFC-0002", "RFC-0005"],
+      "summary": "Specifies the signed audit log format, BLAKE3 hash chaining, tamper detection, and compliance export."
+    },
+    {
+      "rfc_id": "RFC-0013",
+      "title": "Key Recovery & Account Continuity",
+      "status": "draft",
+      "phase": "critical",
+      "depends_on": ["RFC-0004", "RFC-0006", "RFC-0008"],
+      "summary": "Defines multi-device enrollment, recovery contacts, and optional Shamir-split org recovery key for when users lose their devices."
+    },
+    {
+      "rfc_id": "RFC-0014",
+      "title": "CLI User Experience & Quick Start",
+      "status": "draft",
+      "phase": "critical",
+      "depends_on": ["RFC-0010"],
+      "summary": "Defines the 5-minute quick start, shell completions, .myc.yaml project config, subprocess injection, and actionable error messages."
+    }
+  ],
+  "future_rfcs": [
+    {
+      "rfc_id": "RFC-0020",
+      "title": "GitHub Organizations & Teams Integration",
+      "status": "future",
+      "phase": "github-native",
+      "summary": "Leverage GitHub Organizations and Teams for membership management, mapping GitHub team membership to Mycelium project access."
+    },
+    {
+      "rfc_id": "RFC-0021",
+      "title": "GitHub Webhooks & Notifications",
+      "status": "future",
+      "phase": "github-native",
+      "summary": "Use GitHub webhooks for real-time notifications on secret changes, rotation events, and membership updates."
+    },
+    {
+      "rfc_id": "RFC-0022",
+      "title": "Cross-Repository Secret Sharing",
+      "status": "future",
+      "phase": "github-native",
+      "summary": "Share encrypted secrets across multiple GitHub repositories within an organization."
+    }
+  ]
+}

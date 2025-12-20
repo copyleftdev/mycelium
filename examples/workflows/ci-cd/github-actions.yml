@@ -1,0 +1,99 @@
+# Example GitHub Actions workflow using Mycelium
+# Place this in .github/workflows/deploy.yml
+
+name: Deploy Application
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  MYC_NON_INTERACTIVE: "1"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for OIDC
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Mycelium
+        run: |
+          curl -L https://github.com/your-org/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
+          sudo mv myc /usr/local/bin/
+          myc --version
+
+      - name: Pull test secrets
+        run: |
+          myc ci pull my-app test --format shell > test-secrets.env
+          source test-secrets.env
+          
+      - name: Run tests
+        run: |
+          source test-secrets.env
+          npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write  # Required for OIDC
+      contents: read
+    environment: production  # GitHub environment protection
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Mycelium
+        run: |
+          curl -L https://github.com/your-org/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
+          sudo mv myc /usr/local/bin/
+
+      - name: Pull production secrets and deploy
+        run: |
+          # Pull secrets in shell format
+          myc ci pull my-app production --format shell > prod-secrets.env
+          
+          # Source secrets and deploy
+          source prod-secrets.env
+          
+          # Your deployment commands here
+          echo "Deploying with DATABASE_URL: ${DATABASE_URL%%@*}@***"  # Masked output
+          ./deploy.sh
+          
+      - name: Verify deployment
+        run: |
+          source prod-secrets.env
+          ./verify-deployment.sh
+
+  # Example: Deploy to multiple environments
+  deploy-staging:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop'
+    permissions:
+      id-token: write
+      contents: read
+    environment: staging
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Mycelium
+        run: |
+          curl -L https://github.com/your-org/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
+          sudo mv myc /usr/local/bin/
+
+      - name: Deploy to staging
+        run: |
+          myc ci pull my-app staging --format shell > staging-secrets.env
+          source staging-secrets.env
+          ./deploy-staging.sh

@@ -1,0 +1,248 @@
+{
+  "rfc_id": "RFC-0011",
+  "title": "GitHub Actions CI Integration",
+  "status": "draft",
+  "created": "2025-12-05",
+  "authors": ["mycelium-core"],
+  "phase": "ci",
+  "depends_on": ["RFC-0004", "RFC-0008"],
+  "summary": "Defines GitHub Actions OIDC-based authentication for CI workflows. Workflows can pull secrets without any stored credentials—just native GitHub OIDC tokens.",
+
+  "motivation": {
+    "problem": "CI/CD pipelines need secrets but storing long-lived credentials in GitHub Secrets is risky. GitHub Actions has native OIDC support that can prove workflow identity without stored secrets.",
+    "solution": "Use GitHub Actions OIDC tokens to authenticate CI workflows. Admin pre-authorizes repository/workflow patterns. No secrets stored in GitHub—the workflow's identity is cryptographically proven."
+  },
+
+  "design": {
+    "ci_device_type": {
+      "description": "CI devices are a distinct device type",
+      "enum": "DeviceType::CI",
+      "differences_from_interactive": [
+        "Cannot initiate browser-based OIDC flow",
+        "May have shorter default expiry",
+        "Can be restricted to read-only in project membership",
+        "Identity proven via workload identity or pre-shared keys"
+      ]
+    },
+
+    "enrollment_methods": {
+      "oidc_workload_identity": {
+        "description": "Use CI platform's OIDC tokens to prove identity",
+        "supported_platforms": [
+          {
+            "name": "GitHub Actions",
+            "env_vars": ["ACTIONS_ID_TOKEN_REQUEST_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL"],
+            "claims_used": ["repository", "workflow", "ref", "actor"],
+            "identity_format": "github:repo:<owner>/<repo>:ref:<ref>"
+          },
+          {
+            "name": "Other CI (future)",
+            "notes": "GitLab CI, CircleCI, etc. could be supported via pre-provisioned keys",
+            "method": "Pre-provisioned device keys"
+          }
+        ],
+        "enrollment_flow": [
+          "1. CI job starts, requests OIDC token from platform",
+          "2. myc ci enroll --oidc-provider github (or auto-detect)",
+          "3. CLI exchanges platform token for identity verification",
+          "4. CLI generates device keys locally",
+          "5. CLI registers device with CI type and derived identity",
+          "6. Admin pre-authorizes identity pattern (e.g., 'github:repo:myorg/*')",
+          "7. If authorized, device is active immediately"
+        ]
+      },
+
+      "pre_provisioned_keys": {
+        "description": "Traditional approach: admin creates CI identity, distributes keys",
+        "flow": [
+          "1. Admin runs myc ci create <name> --project <project> to create CI identity",
+          "2. CLI generates keypair, wraps PDK to new keys",
+          "3. Admin securely transfers encrypted key file to CI secret storage",
+          "4. CI job runs myc ci pull --key-file <path>",
+          "5. CLI uses provided keys to decrypt"
+        ],
+        "key_distribution": {
+          "github_actions": "Store encrypted key as GitHub secret, decode in workflow",
+          "gitlab": "Store as CI/CD variable (file type)",
+          "general": "Store in vault/secret manager, inject at runtime"
+        }
+      }
+    },
+
+    "ci_identity_management": {
+      "description": "Managing CI identities",
+      "commands": {
+        "create": {
+          "usage": "myc ci create <name> --project <project> [--expires <duration>]",
+          "description": "Create a new CI identity for a project",
+          "output": "Device ID, encrypted key bundle"
+        },
+        "list": {
+          "usage": "myc ci list [--project <project>]",
+          "description": "List CI identities"
+        },
+        "grant": {
+          "usage": "myc ci grant <ci-id> <project> [--role reader]",
+          "description": "Grant CI identity access to additional project"
+        },
+        "revoke": {
+          "usage": "myc ci revoke <ci-id>",
+          "description": "Revoke CI identity (triggers rotation)"
+        },
+        "renew": {
+          "usage": "myc ci renew <ci-id> --expires <duration>",
+          "description": "Extend expiry of CI identity"
+        }
+      }
+    },
+
+    "expiry_semantics": {
+      "description": "Time-limited CI access",
+      "fields": {
+        "expires_at": "Optional<OffsetDateTime> on Device",
+        "lease_duration": "Duration for auto-expiring enrollments"
+      },
+      "enforcement": [
+        "On pull, check if device.expires_at < now",
+        "If expired, reject with error (not AccessDenied—distinct error code)",
+        "Expired devices are not included in new PDK wraps"
+      ],
+      "default_expiry": {
+        "oidc_workload": "24 hours (re-enroll each job or extend)",
+        "pre_provisioned": "90 days (admin-configurable)"
+      }
+    },
+
+    "ci_pull_operation": {
+      "description": "How CI pulls secrets",
+      "command": "myc ci pull <project> <set> --format <shell|dotenv|json|export>",
+      "formats": {
+        "shell": "export KEY='value'\\n... (for eval)",
+        "dotenv": "KEY=value\\n...",
+        "json": "{ \"KEY\": \"value\" }",
+        "export": "Direct env var export (subprocess injection)"
+      },
+      "examples": {
+        "github_actions": [
+          "- name: Load secrets",
+          "  run: |",
+          "    eval $(myc ci pull myapp production --format shell)"
+        ],
+        "gitlab_ci": [
+          "before_script:",
+          "  - eval $(myc ci pull myapp production --format shell)"
+        ]
+      }
+    },
+
+    "security_restrictions": {
+      "description": "CI-specific security constraints",
+      "restrictions": [
+        {
+          "restriction": "CI devices cannot add members",
+          "rationale": "Read/write only, no share permission"
+        },
+        {
+          "restriction": "CI devices cannot rotate PDKs",
+          "rationale": "No rotate permission by default"
+        },
+        {
+          "restriction": "CI keys should be passphrase-protected or in secure storage",
+          "rationale": "Defense against key theft from CI logs"
+        },
+        {
+          "restriction": "Workload identity bindings should be specific (not wildcard)",
+          "rationale": "Limit blast radius of compromised CI config"
+        }
+      ]
+    },
+
+    "identity_authorization": {
+      "description": "How CI identities are authorized",
+      "models": {
+        "explicit": {
+          "description": "Admin explicitly creates and grants each CI identity",
+          "suitable_for": "Small teams, high-security environments"
+        },
+        "pattern_based": {
+          "description": "Admin authorizes identity patterns, matching CIs auto-enroll",
+          "example": "Allow 'github:repo:myorg/api:ref:refs/heads/main' for production",
+          "suitable_for": "Large teams, many repos"
+        }
+      },
+      "storage": "Authorized patterns stored in org settings or project settings"
+    },
+
+    "audit_for_ci": {
+      "description": "CI-specific audit events",
+      "events": [
+        { "type": "ci_enrolled", "fields": ["device_id", "identity", "expires_at"] },
+        { "type": "ci_pull", "fields": ["device_id", "project", "set", "version"] },
+        { "type": "ci_expired", "fields": ["device_id", "expired_at"] },
+        { "type": "ci_revoked", "fields": ["device_id", "revoked_by", "reason"] }
+      ]
+    },
+
+    "environment_variables": {
+      "description": "Env vars for CI mode",
+      "vars": [
+        { "name": "MYC_NON_INTERACTIVE", "value": "1", "purpose": "Disable all prompts" },
+        { "name": "MYC_KEY_PASSPHRASE", "purpose": "Passphrase for key decryption" },
+        { "name": "MYC_CI_KEY_FILE", "purpose": "Path to encrypted key bundle" },
+        { "name": "MYC_PROFILE", "purpose": "Profile to use" }
+      ]
+    }
+  },
+
+  "github_actions_example": {
+    "description": "Complete GitHub Actions workflow example",
+    "workflow": {
+      "name": "Deploy with Mycelium Secrets",
+      "on": { "push": { "branches": ["main"] } },
+      "permissions": { "id-token": "write", "contents": "read" },
+      "jobs": {
+        "deploy": {
+          "runs-on": "ubuntu-latest",
+          "steps": [
+            { "uses": "actions/checkout@v4" },
+            {
+              "name": "Install myc",
+              "run": "curl -sSL https://get.mycelium.dev | sh"
+            },
+            {
+              "name": "Authenticate with OIDC",
+              "run": "myc ci enroll --oidc-provider github"
+            },
+            {
+              "name": "Load production secrets",
+              "run": "eval $(myc ci pull myapp production --format shell)"
+            },
+            {
+              "name": "Deploy",
+              "run": "./deploy.sh"
+            }
+          ]
+        }
+      }
+    }
+  },
+
+  "acceptance_criteria": [
+    "CI device can enroll via OIDC workload identity",
+    "CI device can pull secrets non-interactively",
+    "Expired CI device is rejected on pull",
+    "CI device cannot share or rotate",
+    "Pre-provisioned keys work when stored in CI secrets",
+    "Audit records created for CI operations",
+    "Pattern-based authorization matches correctly"
+  ],
+
+  "open_questions": [
+    "Should we support just-in-time CI access (ephemeral per-job keys)?",
+    "Should CI pulls be rate-limited to prevent exfiltration?"
+  ],
+  "resolved_questions": [],
+  "changelog": [
+    { "date": "2025-12-05", "change": "Initial draft" }
+  ]
+}

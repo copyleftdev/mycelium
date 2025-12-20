@@ -1,0 +1,22 @@
+[package]
+name = "myc-test-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared test utilities for Mycelium"
+
+[dependencies]
+# Workspace crates
+myc-crypto.workspace = true
+myc-core.workspace = true
+
+# Testing
+proptest.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+[lib]
+doctest = false

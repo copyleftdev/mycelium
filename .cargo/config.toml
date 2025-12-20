@@ -1,0 +1,12 @@
+[build]
+# Use all available CPU cores for parallel compilation
+jobs = -1
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[alias]
+# Convenient aliases for common tasks
+xtask = "run --package xtask --"
+fmt-check = "fmt --all -- --check"
+lint = "clippy --workspace --all-targets --all-features -- -D warnings"
