@@ -12,7 +12,11 @@ members = [
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/mycelium/mycelium"
+repository = "https://github.com/copyleftdev/mycelium"
+authors = ["Mycelium Contributors"]
+description = "A living, zero-knowledge secrets mesh - CLI-only secrets management using GitHub as backend"
+keywords = ["secrets", "cli", "cryptography", "zero-knowledge", "security"]
+categories = ["command-line-utilities", "cryptography", "development-tools"]
 
 [workspace.dependencies]
 # Workspace crates
