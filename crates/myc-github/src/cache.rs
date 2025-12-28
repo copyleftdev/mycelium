@@ -20,14 +20,18 @@ struct CacheEntry {
     data: Vec<u8>,
     /// When the entry was cached
     cached_at: SystemTime,
+    /// The original cache key (for prefix invalidation)
+    #[serde(default)]
+    key: Option<String>,
 }
 
 impl CacheEntry {
-    /// Creates a new cache entry with the current timestamp
-    fn new(data: Vec<u8>) -> Self {
+    /// Creates a new cache entry with the original key
+    fn new_with_key(data: Vec<u8>, key: String) -> Self {
         Self {
             data,
             cached_at: SystemTime::now(),
+            key: Some(key),
         }
     }
 
@@ -192,7 +196,7 @@ impl Cache {
 
         self.ensure_cache_dir()?;
 
-        let entry = CacheEntry::new(data);
+        let entry = CacheEntry::new_with_key(data, key.to_string());
         let json = serde_json::to_string(&entry).map_err(|e| {
             GitHubError::CacheError(format!("Failed to serialize cache entry: {}", e))
         })?;
@@ -270,8 +274,6 @@ impl Cache {
             return Ok(());
         }
 
-        let prefix_filename = Self::key_to_filename(prefix);
-
         // Read all cache files
         let entries = fs::read_dir(&self.cache_dir).map_err(|e| {
             GitHubError::CacheError(format!("Failed to read cache directory: {}", e))
@@ -282,12 +284,30 @@ impl Cache {
                 GitHubError::CacheError(format!("Failed to read directory entry: {}", e))
             })?;
 
-            let filename = entry.file_name();
-            let filename_str = filename.to_string_lossy();
+            let path = entry.path();
+            if !path.is_file() || !path.extension().map_or(false, |ext| ext == "json") {
+                continue;
+            }
 
-            // Check if filename starts with the prefix
-            if filename_str.starts_with(&prefix_filename) {
-                let _ = fs::remove_file(entry.path());
+            // Read the cache entry to get the original key
+            if let Ok(json) = fs::read_to_string(&path) {
+                if let Ok(cache_entry) = serde_json::from_str::<CacheEntry>(&json) {
+                    // Check if we have the original key and it matches the prefix
+                    if let Some(original_key) = &cache_entry.key {
+                        if original_key.starts_with(prefix) {
+                            let _ = fs::remove_file(&path);
+                        }
+                    } else {
+                        // Fallback to old behavior for entries without stored keys
+                        let filename = path.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("");
+                        let prefix_filename = Self::key_to_filename(prefix);
+                        if filename.starts_with(&prefix_filename) {
+                            let _ = fs::remove_file(&path);
+                        }
+                    }
+                }
             }
         }
 
@@ -556,6 +576,7 @@ mod tests {
         let entry = CacheEntry {
             data: data.clone(),
             cached_at: SystemTime::now() - Duration::from_secs(10 * 60), // 10 minutes ago
+            key: Some("test/expired".to_string()),
         };
 
         let json = serde_json::to_string(&entry).unwrap();
@@ -615,6 +636,7 @@ mod tests {
         let expired_entry = CacheEntry {
             data: b"expired data".to_vec(),
             cached_at: SystemTime::now() - Duration::from_secs(10 * 60),
+            key: Some("expired/key".to_string()),
         };
         let json = serde_json::to_string(&expired_entry).unwrap();
         let path = cache.cache_file_path("expired.txt");
@@ -687,13 +709,14 @@ mod tests {
     #[test]
     fn test_cache_entry_expiration_check() {
         // Fresh entry
-        let fresh = CacheEntry::new(b"data".to_vec());
+        let fresh = CacheEntry::new_with_key(b"data".to_vec(), "fresh/key".to_string());
         assert!(!fresh.is_expired());
 
         // Expired entry
         let expired = CacheEntry {
             data: b"data".to_vec(),
             cached_at: SystemTime::now() - Duration::from_secs(10 * 60),
+            key: Some("expired/key".to_string()),
         };
         assert!(expired.is_expired());
     }
@@ -710,6 +733,7 @@ mod tests {
         let expired_entry = CacheEntry {
             data: b"expired".to_vec(),
             cached_at: SystemTime::now() - Duration::from_secs(10 * 60),
+            key: Some("expired/key".to_string()),
         };
         let json = serde_json::to_string(&expired_entry).unwrap();
         let path = cache.cache_file_path("expired.txt");

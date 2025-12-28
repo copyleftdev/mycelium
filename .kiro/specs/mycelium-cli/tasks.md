@@ -1149,3 +1149,364 @@
   - [x] Ensure all documentation is complete
   - [x] Ask the user if questions arise
 
+
+## Phase 18: CLI Command Implementation (Integration Layer)
+
+**Status**: The CLI command structure, core business logic, and all cryptographic primitives are fully implemented and tested. However, the CLI command handlers need to be connected to the underlying business logic. Currently, most commands print placeholder messages instead of performing actual operations.
+
+- [x] 19. Implement organization commands integration
+- [x] 19.1 Implement org init command
+  - Integrate with GitHub client to create repository
+  - Initialize vault structure (.mycelium/ directory)
+  - Create organization metadata (vault.json)
+  - Store initial configuration
+  - Create first audit event
+  - _Requirements: 6.1, 4.2, 13.1_
+
+- [x] 19.2 Implement org show command
+  - Read vault.json from GitHub
+  - Display organization details
+  - Show member count and project count
+  - Support JSON output
+  - _Requirements: 4.2, 11.3_
+
+- [x] 19.3 Implement org settings command
+  - Read current settings from vault.json
+  - Update settings as specified
+  - Write back to GitHub
+  - Create audit event
+  - _Requirements: 4.2, 13.1_
+
+- [x] 20. Implement device commands integration
+- [x] 20.1 Implement device list command
+  - Read devices from .mycelium/devices/
+  - Filter by user if not --all
+  - Display device details (name, type, status, enrolled date)
+  - Support JSON output
+  - _Requirements: 5.1, 11.3_
+
+- [x] 20.2 Implement device show command
+  - Read specific device file
+  - Display full device details
+  - Show public keys
+  - Support JSON output
+  - _Requirements: 5.1, 11.3_
+
+- [x] 20.3 Implement device enroll command
+  - Generate device keypair
+  - Prompt for passphrase
+  - Encrypt and save keys locally
+  - Create device record
+  - Upload to GitHub
+  - Handle approval workflow if required
+  - Create audit event
+  - _Requirements: 5.1, 5.2, 5.3, 13.1_
+
+- [x] 20.4 Implement device revoke command
+  - Mark device as revoked
+  - Trigger PDK rotation for all affected projects
+  - Create audit event
+  - _Requirements: 10.2, 13.1_
+
+- [x] 20.5 Implement device approve command
+  - Change device status from PendingApproval to Active
+  - Create audit event
+  - _Requirements: 5.1, 13.1_
+
+- [x] 21. Implement project commands integration
+- [x] 21.1 Implement project create command
+  - Generate project ID
+  - Generate initial PDK
+  - Wrap PDK to creator's devices
+  - Create project metadata
+  - Create members.json with creator as owner
+  - Upload to GitHub
+  - Create audit event
+  - _Requirements: 7.1, 7.2, 7.3, 9.2, 13.1_
+
+- [x] 21.2 Implement project list command
+  - Read all projects from .mycelium/projects/
+  - Filter by user's membership
+  - Display project details
+  - Support JSON output
+  - _Requirements: 4.2, 11.3_
+
+- [x] 21.3 Implement project show command
+  - Read project metadata
+  - Read members.json
+  - Display project details and members
+  - Show current PDK version
+  - Support JSON output
+  - _Requirements: 4.2, 9.6, 11.3_
+
+- [x] 21.4 Implement project delete command
+  - Verify user is owner
+  - Prompt for confirmation
+  - Delete project directory
+  - Create audit event
+  - _Requirements: 9.2, 13.1_
+
+- [x] 22. Implement secret set commands integration
+- [x] 22.1 Implement set create command
+  - Verify user has write permission
+  - Generate secret set ID
+  - Create set metadata
+  - Upload to GitHub
+  - Create audit event
+  - _Requirements: 8.1, 9.4, 13.1_
+
+- [x] 22.2 Implement set list command
+  - Read all sets for project
+  - Display set details
+  - Support JSON output
+  - _Requirements: 8.1, 11.3_
+
+- [x] 22.3 Implement set show command
+  - Read set metadata
+  - Display set details and version history
+  - Support JSON output
+  - _Requirements: 8.1, 17.1, 11.3_
+
+- [x] 22.4 Implement set delete command
+  - Verify user has write permission
+  - Prompt for confirmation
+  - Delete set directory
+  - Create audit event
+  - _Requirements: 9.4, 13.1_
+
+- [x] 23. Implement pull command integration
+- [x] 23.1 Implement pull command
+  - Load .myc.yaml config if present
+  - Resolve project and set names to IDs
+  - Verify user has read permission
+  - Read version metadata (latest or specified)
+  - Get PDK version and unwrap PDK
+  - Decrypt secret version
+  - Verify content hash, chain hash, and signature
+  - Parse entries
+  - Format output (dotenv, json, shell, yaml)
+  - Write to file or stdout
+  - _Requirements: 8.5, 9.5, 16.3, 16.4, 16.5, 16.6, 15.4_
+
+- [x] 24. Implement push command integration
+- [x] 24.1 Implement push command with diff
+  - Load .myc.yaml config if present
+  - Resolve project and set names to IDs
+  - Verify user has write permission
+  - Read and parse input file (dotenv, json, auto-detect)
+  - Fetch current version for diff
+  - Display diff and prompt for confirmation
+  - Get current PDK and unwrap
+  - Serialize entries (canonical JSON, sorted keys)
+  - Compute content hash
+  - Compute chain hash
+  - Encrypt with PDK
+  - Sign metadata
+  - Upload ciphertext and metadata
+  - Create audit event
+  - _Requirements: 8.2, 8.3, 8.4, 9.4, 16.1, 16.2, 15.7, 13.1_
+
+- [x] 25. Implement share commands integration
+- [x] 25.1 Implement share add command
+  - Verify actor has share permission
+  - Verify target role <= actor's role
+  - Look up target user's devices
+  - Get current PDK version
+  - Unwrap PDK with actor's device key
+  - Wrap PDK to each target device
+  - Update members.json
+  - Sign members.json
+  - Upload to GitHub
+  - Create audit event
+  - _Requirements: 9.6, 9.7, 7.3, 13.1_
+
+- [x] 25.2 Implement share remove command
+  - Verify actor has share permission
+  - Verify target role < actor's role
+  - Remove member from members.json
+  - Trigger PDK rotation
+  - Wrap new PDK only to remaining members
+  - Sign members.json
+  - Upload to GitHub
+  - Create audit event
+  - _Requirements: 9.7, 10.1, 13.1_
+
+- [x] 25.3 Implement share list command
+  - Read members.json
+  - Verify signature
+  - Display members and roles
+  - Support JSON output
+  - _Requirements: 9.6, 9.8, 11.3_
+
+- [x] 25.4 Implement share set-role command
+  - Verify actor has share permission
+  - Verify preconditions for role change
+  - Update role in members.json
+  - Sign members.json
+  - Upload to GitHub
+  - Create audit event
+  - _Requirements: 9.6, 13.1_
+
+- [x] 26. Implement rotate command integration
+- [x] 26.1 Implement rotate command
+  - Verify user has rotate permission
+  - Check rotation policy
+  - Generate new PDK
+  - Increment version number
+  - Get authorized devices (excluding revoked)
+  - Wrap new PDK to authorized devices
+  - Create PdkVersion record with reason
+  - Update project.current_pdk_version
+  - Sign and upload
+  - Create audit event
+  - _Requirements: 10.3, 10.4, 13.1_
+
+- [x] 27. Implement versions commands integration
+- [x] 27.1 Implement versions list command
+  - Read all version metadata files
+  - Display version details (number, timestamp, author, message)
+  - Support limit parameter
+  - Support JSON output
+  - _Requirements: 17.1, 11.3_
+
+- [x] 27.2 Implement versions show command
+  - Read specific version metadata
+  - Display full version details
+  - Show content hash, chain hash, signature status
+  - Support JSON output
+  - _Requirements: 17.2, 11.3_
+
+- [x] 28. Implement diff command integration
+- [x] 28.1 Implement diff command
+  - Verify user has read permission
+  - Decrypt both versions
+  - Compute diff (added, removed, changed keys)
+  - Display diff with optional value changes
+  - Support JSON output
+  - _Requirements: 17.3, 17.4, 11.3_
+
+- [x] 29. Implement verify command integration
+- [x] 29.1 Implement verify command
+  - Read project metadata
+  - Verify membership signatures
+  - Verify PDK version signatures
+  - Verify secret set version signatures
+  - Verify content hashes
+  - Verify hash chains
+  - Report results
+  - Support JSON output
+  - _Requirements: 19.1, 19.2, 19.3, 19.4, 19.5, 19.6, 11.3_
+
+- [x] 30. Implement audit commands integration
+- [x] 30.1 Implement audit list command
+  - Read audit events from .mycelium/audit/
+  - Filter by project, user, event type, date range
+  - Display event summaries
+  - Support limit parameter
+  - Support JSON output
+  - _Requirements: 13.7, 11.3_
+
+- [x] 30.2 Implement audit show command
+  - Read specific audit event
+  - Display full event details
+  - Verify signature
+  - Support JSON output
+  - _Requirements: 13.7, 11.3_
+
+- [x] 30.3 Implement audit export command
+  - Read audit events
+  - Filter by criteria
+  - Format as JSON, CSV, or syslog
+  - Write to file or stdout
+  - _Requirements: 13.7_
+
+- [x] 30.4 Implement audit note command
+  - Create manual audit entry
+  - Sign with device key
+  - Upload to GitHub
+  - _Requirements: 13.7_
+
+- [x] 31. Implement CI commands integration
+- [x] 31.1 Implement ci enroll command
+  - Validate OIDC token
+  - Extract claims (repository, workflow, ref, actor, environment)
+  - Generate CI device keypair
+  - Create device record with CI type
+  - Set expiration if specified
+  - Upload to GitHub
+  - Create audit event
+  - _Requirements: 12.1, 12.2, 12.3, 13.1_
+
+- [x] 31.2 Implement ci pull command
+  - Non-interactive mode (no prompts)
+  - Read MYC_KEY_PASSPHRASE from environment
+  - Pull secrets
+  - Format as shell, dotenv, or json
+  - Output to stdout for eval
+  - _Requirements: 12.5, 5.4, 11.6_
+
+- [x] 32. Implement cache commands integration
+- [x] 32.1 Implement cache clear command
+  - Clear cache for current profile or all profiles
+  - Clear PDK cache from memory
+  - Delete cache files
+  - _Requirements: 6.6, 7.7_
+
+- [x] 32.2 Implement cache status command
+  - Display cache statistics
+  - Show cached items and sizes
+  - Show cache hit/miss rates
+  - Support JSON output
+  - _Requirements: 6.6, 11.3_
+
+- [x] 33. Implement run command integration
+- [x] 33.1 Implement run command
+  - Load .myc.yaml config if present
+  - Pull secrets
+  - Inject as environment variables
+  - Execute subprocess
+  - Ensure secrets never written to disk
+  - _Requirements: 15.5_
+
+- [x] 34. Implement status command integration
+- [x] 34.1 Implement status command
+  - Display current profile information
+  - Display recovery status (device count, contacts)
+  - Display projects with access
+  - Display last pull information
+  - Display GitHub API rate limit
+  - Support JSON output
+  - _Requirements: 15.4, 14.7, 11.3_
+
+- [x] 35. Final integration testing
+- [x] 35.1 Test complete workflows end-to-end
+  - Test vault initialization → project creation → secret push/pull
+  - Test membership workflows (add, remove, change role)
+  - Test rotation workflows (manual, policy-based, emergency)
+  - Test recovery workflows (multi-device, recovery contacts)
+  - Test CI workflows (OIDC enrollment, pull)
+  - _Requirements: 21.7_
+
+- [x] 35.2 Test error scenarios
+  - Test permission denied errors
+  - Test concurrent modification conflicts
+  - Test network errors and retries
+  - Test invalid input handling
+  - Test missing dependencies
+  - _Requirements: 20.1, 20.2, 20.3, 20.4, 20.5, 20.6, 20.7_
+
+- [x] 35.3 Test cross-platform compatibility
+  - Test on Linux
+  - Test on macOS
+  - Test on Windows
+  - Verify file permissions work correctly
+  - Verify path handling works correctly
+  - _Requirements: 5.3_
+
+- [x] 36. Final checkpoint
+  - Ensure all CLI commands work end-to-end
+  - Ensure all integration tests pass
+  - Ensure error messages are clear and actionable
+  - Ensure documentation is complete
+  - Ask the user if questions arise
+

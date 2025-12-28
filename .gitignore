@@ -2,26 +2,85 @@
 /target/
 **/*.rs.bk
 *.pdb
-Cargo.lock
 
-# IDE
+# IDE and Editors
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 .DS_Store
+*.sublime-*
+.vimrc.local
 
-# Local development
+# Local development and secrets
 .env
-.env.local
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.json
+config.json
+credentials.json
 
-# Mycelium local data (for testing)
+# Mycelium local data
 .mycelium/
 .myc.yaml
+~/.config/mycelium/
+test-project/
 
-# Logs
+# Test artifacts
+proptest-regressions/
+*.proptest-regressions
+
+# Logs and debugging
 *.log
+debug/
+*.dSYM/
 
-# OS
+# OS generated files
 Thumbs.db
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Package managers
+node_modules/
+.npm
+.yarn/
+.pnpm-store/
+
+# Coverage reports
+coverage/
+*.lcov
+*.gcov
+*.gcda
+*.gcno
+
+# Profiling
+*.prof
+perf.data*
+
+# Local configuration
+.local/
+local.toml
+local.yaml
