@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="240" height="240" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 24x24 grid system - More organic mycelium mesh concept -->
+  
+  <!-- Grid guidelines -->
+  <defs>
+    <pattern id="grid" width="1" height="1" patternUnits="userSpaceOnUse">
+      <path d="M 1 0 L 0 0 0 1" fill="none" stroke="#e0e0e0" stroke-width="0.1" opacity="0.3"/>
+    </pattern>
+  </defs>
+  
+  <rect width="24" height="24" fill="url(#grid)" opacity="0.2"/>
+  
+  <!-- Central cluster of interconnected nodes -->
+  <circle cx="10" cy="10" r="1.5" fill="none" stroke="#1B4332" stroke-width="2"/>
+  <circle cx="14" cy="12" r="1.5" fill="none" stroke="#1B4332" stroke-width="2"/>
+  <circle cx="12" cy="14" r="1.5" fill="none" stroke="#1B4332" stroke-width="2"/>
+  
+  <!-- Organic connecting paths -->
+  <path d="M 11.5 10 Q 12.5 11 12.5 12" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 14 13.5 Q 13 13.5 12 13.5" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 10 11.5 Q 11 12.5 12 12.5" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- Extending branches to edge nodes -->
+  <path d="M 8.5 10 Q 6 8 3 6" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 15.5 12 Q 18 10 21 8" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 12 15.5 Q 14 18 16 21" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 10 11.5 Q 8 14 6 17" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- Edge nodes -->
+  <circle cx="3" cy="6" r="1" fill="#1B4332"/>
+  <circle cx="21" cy="8" r="1" fill="#1B4332"/>
+  <circle cx="16" cy="21" r="1" fill="#1B4332"/>
+  <circle cx="6" cy="17" r="1" fill="#1B4332"/>
+  
+  <!-- Subtle secondary connections -->
+  <path d="M 4 6 Q 8 4 20 8" fill="none" stroke="#1B4332" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+  <path d="M 6 16 Q 10 19 15 20" fill="none" stroke="#1B4332" stroke-width="1" stroke-linecap="round" opacity="0.5"/>
+</svg>

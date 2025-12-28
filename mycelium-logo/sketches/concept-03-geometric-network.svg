@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="240" height="240" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- 24x24 grid system - Geometric precision with organic flow -->
+  
+  <!-- Grid guidelines -->
+  <defs>
+    <pattern id="grid" width="1" height="1" patternUnits="userSpaceOnUse">
+      <path d="M 1 0 L 0 0 0 1" fill="none" stroke="#e0e0e0" stroke-width="0.1" opacity="0.3"/>
+    </pattern>
+  </defs>
+  
+  <rect width="24" height="24" fill="url(#grid)" opacity="0.2"/>
+  
+  <!-- Central hexagonal node structure -->
+  <circle cx="12" cy="12" r="2" fill="none" stroke="#1B4332" stroke-width="2"/>
+  
+  <!-- Six primary branches in hexagonal pattern -->
+  <path d="M 12 10 L 12 6" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 13.73 11 L 17.46 9" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 13.73 13 L 17.46 15" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 12 14 L 12 18" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 10.27 13 L 6.54 15" fill="none" stroke="#1B4332" stroke-width="2" stroke-width="2" stroke-linecap="round"/>
+  <path d="M 10.27 11 L 6.54 9" fill="none" stroke="#1B4332" stroke-width="2" stroke-linecap="round"/>
+  
+  <!-- Terminal nodes -->
+  <circle cx="12" cy="6" r="1" fill="#1B4332"/>
+  <circle cx="17.46" cy="9" r="1" fill="#1B4332"/>
+  <circle cx="17.46" cy="15" r="1" fill="#1B4332"/>
+  <circle cx="12" cy="18" r="1" fill="#1B4332"/>
+  <circle cx="6.54" cy="15" r="1" fill="#1B4332"/>
+  <circle cx="6.54" cy="9" r="1" fill="#1B4332"/>
+  
+  <!-- Organic secondary connections -->
+  <path d="M 12 7 Q 15 7.5 16.5 9" fill="none" stroke="#1B4332" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M 16.5 15 Q 15 16.5 12 17" fill="none" stroke="#1B4332" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M 12 17 Q 9 16.5 7.5 15" fill="none" stroke="#1B4332" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  <path d="M 7.5 9 Q 9 7.5 12 7" fill="none" stroke="#1B4332" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+</svg>

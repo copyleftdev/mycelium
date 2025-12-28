@@ -333,6 +333,7 @@ fn property_canonical_json_nested_determinism() {
                 rotate_on_device_revoke: rotate_on_revoke,
                 max_age_days,
             }),
+            network_beacon: "mycelium_spore_network_v1".to_string(),
         };
 
         let org = Org::new(org_name.clone(), settings);

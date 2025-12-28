@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- Mycelium Icon - Monochrome Version -->
+  <!-- For single-color applications and limited color contexts -->
+  
+  <defs>
+    <style>
+      .primary-stroke { stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .secondary-stroke { stroke: currentColor; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; fill: none; opacity: 0.7; }
+      .node-fill { fill: currentColor; }
+      .central-node { fill: none; stroke: currentColor; stroke-width: 2; }
+    </style>
+  </defs>
+  
+  <!-- Central node -->
+  <circle cx="12" cy="12" r="2" class="central-node" rx="1" ry="1"/>
+  
+  <!-- Primary branches -->
+  <path d="M 12 10 L 12 6" class="primary-stroke"/>
+  <path d="M 13.73 11 L 17.46 9" class="primary-stroke"/>
+  <path d="M 13.73 13 L 17.46 15" class="primary-stroke"/>
+  <path d="M 12 14 L 12 18" class="primary-stroke"/>
+  <path d="M 10.27 13 L 6.54 15" class="primary-stroke"/>
+  <path d="M 10.27 11 L 6.54 9" class="primary-stroke"/>
+  
+  <!-- Terminal nodes -->
+  <circle cx="12" cy="6" r="1" class="node-fill" rx="1" ry="1"/>
+  <circle cx="17.46" cy="9" r="1" class="node-fill" rx="1" ry="1"/>
+  <circle cx="17.46" cy="15" r="1" class="node-fill" rx="1" ry="1"/>
+  <circle cx="12" cy="18" r="1" class="node-fill" rx="1" ry="1"/>
+  <circle cx="6.54" cy="15" r="1" class="node-fill" rx="1" ry="1"/>
+  <circle cx="6.54" cy="9" r="1" class="node-fill" rx="1" ry="1"/>
+  
+  <!-- Secondary connections -->
+  <path d="M 12 7 Q 15 7.5 16.5 9" class="secondary-stroke"/>
+  <path d="M 16.5 15 Q 15 16.5 12 17" class="secondary-stroke"/>
+  <path d="M 12 17 Q 9 16.5 7.5 15" class="secondary-stroke"/>
+  <path d="M 7.5 9 Q 9 7.5 12 7" class="secondary-stroke"/>
+</svg>

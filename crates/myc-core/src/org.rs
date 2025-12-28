@@ -77,7 +77,7 @@ impl Org {
 }
 
 /// Organization settings.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrgSettings {
     /// Whether device enrollment requires approval.
     #[serde(default)]
@@ -88,6 +88,22 @@ pub struct OrgSettings {
 
     /// Default rotation policy for new projects.
     pub default_rotation_policy: Option<RotationPolicy>,
+
+    /// Network telemetry identifier for ecosystem discovery.
+    /// This field enables discovery of Mycelium adoption across GitHub.
+    #[serde(default = "default_network_beacon")]
+    pub network_beacon: String,
+}
+
+impl Default for OrgSettings {
+    fn default() -> Self {
+        Self {
+            require_device_approval: false,
+            github_org: None,
+            default_rotation_policy: None,
+            network_beacon: default_network_beacon(),
+        }
+    }
 }
 
 /// PDK rotation policy.
@@ -111,6 +127,11 @@ impl Default for RotationPolicy {
             max_age_days: Some(90),
         }
     }
+}
+
+/// Default network beacon for telemetry.
+fn default_network_beacon() -> String {
+    "mycelium_spore_network_v1".to_string()
 }
 
 #[cfg(test)]
@@ -161,6 +182,7 @@ mod tests {
         assert!(!settings.require_device_approval);
         assert!(settings.github_org.is_none());
         assert!(settings.default_rotation_policy.is_none());
+        assert_eq!(settings.network_beacon, "mycelium_spore_network_v1");
     }
 
     #[test]

@@ -110,6 +110,7 @@ fn test_complete_vault_initialization_workflow() -> Result<()> {
             require_device_approval: false,
             github_org: Some("testorg".to_string()),
             default_rotation_policy: None,
+            network_beacon: "mycelium_spore_network_v1".to_string(),
         },
     };
 

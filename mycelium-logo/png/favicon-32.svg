@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="32" height="32" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- Mycelium Logo - Favicon 32px -->
+  
+  <defs>
+    <style>
+      .primary-stroke { stroke: #1B4332; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+      .node-fill { fill: #1B4332; }
+      .central-node { fill: #1B4332; }
+    </style>
+  </defs>
+  
+  <rect width="24" height="24" fill="transparent"/>
+  
+  <!-- Ultra-simplified for favicon -->
+  <circle cx="12" cy="12" r="3" class="central-node"/>
+  
+  <path d="M 12 9 L 12 4" class="primary-stroke"/>
+  <path d="M 15 12 L 20 12" class="primary-stroke"/>
+  <path d="M 12 15 L 12 20" class="primary-stroke"/>
+  <path d="M 9 12 L 4 12" class="primary-stroke"/>
+  
+  <circle cx="12" cy="4" r="2" class="node-fill"/>
+  <circle cx="20" cy="12" r="2" class="node-fill"/>
+  <circle cx="12" cy="20" r="2" class="node-fill"/>
+  <circle cx="4" cy="12" r="2" class="node-fill"/>
+</svg>

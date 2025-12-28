@@ -271,6 +271,9 @@ enum OrgCommands {
         /// Default rotation policy
         #[arg(long)]
         rotation_policy: Option<String>,
+        /// Network telemetry beacon for ecosystem discovery
+        #[arg(long)]
+        network_beacon: Option<String>,
     },
 }
 
@@ -1000,11 +1003,8 @@ async fn handle_org_command(command: &OrgCommands, cli: &Cli) -> Result<()> {
             )?;
 
             // Step 3: Create organization metadata
-            let org_settings = OrgSettings {
-                require_device_approval: false,
-                github_org: None,
-                default_rotation_policy: Some(RotationPolicy::default()),
-            };
+            let mut org_settings = OrgSettings::default();
+            org_settings.default_rotation_policy = Some(RotationPolicy::default());
 
             let org = Org::new(name.clone(), org_settings);
 
@@ -1230,6 +1230,7 @@ async fn handle_org_command(command: &OrgCommands, cli: &Cli) -> Result<()> {
                 if let Some(ref github_org) = org.settings.github_org {
                     println!("  GitHub organization: {}", github_org);
                 }
+                println!("  Network beacon: {}", org.settings.network_beacon);
                 if let Some(ref policy) = org.settings.default_rotation_policy {
                     println!("  Default rotation policy:");
                     println!("    Rotate on member remove: {}", policy.rotate_on_member_remove);
@@ -1243,6 +1244,7 @@ async fn handle_org_command(command: &OrgCommands, cli: &Cli) -> Result<()> {
         OrgCommands::Settings {
             require_approval,
             rotation_policy,
+            network_beacon,
         } => {
             // Get profile manager and current profile
             let config_dir = ProfileManager::default_config_dir()?;
@@ -1325,6 +1327,11 @@ async fn handle_org_command(command: &OrgCommands, cli: &Cli) -> Result<()> {
                 }
             }
 
+            if let Some(beacon) = network_beacon {
+                org.settings.network_beacon = beacon.clone();
+                changes_made = true;
+            }
+
             if !changes_made {
                 // No changes requested, just show current settings
                 if cli.json {
@@ -1338,6 +1345,7 @@ async fn handle_org_command(command: &OrgCommands, cli: &Cli) -> Result<()> {
                     if let Some(ref github_org) = org.settings.github_org {
                         println!("  GitHub organization: {}", github_org);
                     }
+                    println!("  Network beacon: {}", org.settings.network_beacon);
                     if let Some(ref policy) = org.settings.default_rotation_policy {
                         println!("  Default rotation policy:");
                         println!("    Rotate on member remove: {}", policy.rotate_on_member_remove);
@@ -1407,6 +1415,7 @@ async fn handle_org_command(command: &OrgCommands, cli: &Cli) -> Result<()> {
                 if let Some(ref github_org) = org.settings.github_org {
                     println!("  GitHub organization: {}", github_org);
                 }
+                println!("  Network beacon: {}", org.settings.network_beacon);
                 if let Some(ref policy) = org.settings.default_rotation_policy {
                     println!("  Default rotation policy:");
                     println!("    Rotate on member remove: {}", policy.rotate_on_member_remove);
