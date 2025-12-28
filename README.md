@@ -3,7 +3,7 @@
 <p align="center">
   <img src="mycelium-logo/png/logo.png" alt="Mycelium Logo" width="200">
 </p>
-
+[![DeepScan grade](https://deepscan.io/api/teams/28760/projects/30879/branches/995004/badge/grade.svg)](https://deepscan.io/dashboard#view=project&tid=28760&pid=30879&bid=995004)
 > A living, zero-knowledge secrets mesh
 
 Mycelium is a CLI-only secrets management system that uses GitHub as its complete backend. GitHub stores only ciphertext—it never sees plaintext secrets. All cryptographic operations happen locally on the client.
