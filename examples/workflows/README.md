@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Mycelium
         run: |
-          curl -L https://github.com/your-org/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
+          curl -L https://github.com/copyleftdev/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
           sudo mv myc /usr/local/bin/
       - name: Deploy with secrets
         run: |

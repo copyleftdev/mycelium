@@ -34,7 +34,7 @@ Currently working on: Documentation and final polish.
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/mycelium.git
+git clone https://github.com/copyleftdev/mycelium.git
 cd mycelium
 
 # Build the CLI
@@ -106,7 +106,7 @@ jobs:
       
       - name: Install Mycelium
         run: |
-          curl -L https://github.com/your-org/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
+          curl -L https://github.com/copyleftdev/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
           sudo mv myc /usr/local/bin/
       
       - name: Pull secrets and deploy
@@ -150,6 +150,7 @@ No secrets stored in GitHub Actions - authentication happens via OIDC tokens!
 - `myc cache` - Manage local cache (clear, status)
 - `myc ci` - CI/CD integration commands
 - `myc completions` - Generate shell completions
+- `myc gitignore` - Add common secret file patterns to .gitignore
 
 ## Features
 
@@ -163,6 +164,7 @@ No secrets stored in GitHub Actions - authentication happens via OIDC tokens!
 - **Key recovery**: Multiple recovery mechanisms including recovery contacts and organization keys
 - **Format support**: Import/export in dotenv, JSON, shell, and YAML formats
 - **Comprehensive audit**: Immutable, signed audit logs with hash chain integrity
+- **Ecosystem discovery**: Optional telemetry beacon for tracking adoption across GitHub (can be disabled)
 
 ## Architecture
 
@@ -249,7 +251,8 @@ cargo deny check
 - [Product Overview](prd.json)
 - [RFCs](rfcs/) - Detailed design documents
 - [Architecture Diagrams](diagrams/)
-- [Spec](. kiro/specs/mycelium-cli/) - Implementation specification
+- [Spec](.kiro/specs/mycelium-cli/) - Implementation specification
+- [Network Beacon Documentation](docs/telemetry-breadcrumbs.md) - Ecosystem discovery system
 
 ## License
 

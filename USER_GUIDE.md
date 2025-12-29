@@ -19,7 +19,7 @@
 
 #### From Source
 ```bash
-git clone https://github.com/your-org/mycelium.git
+git clone https://github.com/copyleftdev/mycelium.git
 cd mycelium
 cargo build --release --bin myc
 cp target/release/myc ~/.local/bin/
@@ -27,7 +27,7 @@ cp target/release/myc ~/.local/bin/
 
 #### From Release (Coming Soon)
 ```bash
-curl -L https://github.com/your-org/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
+curl -L https://github.com/copyleftdev/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
 sudo mv myc /usr/local/bin/
 ```
 
@@ -234,7 +234,7 @@ jobs:
       
       - name: Install Mycelium
         run: |
-          curl -L https://github.com/your-org/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
+          curl -L https://github.com/copyleftdev/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
           sudo mv myc /usr/local/bin/
       
       - name: Deploy with secrets
