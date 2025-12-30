@@ -17,18 +17,59 @@
 
 ### Installation
 
-#### From Source
-```bash
-git clone https://github.com/copyleftdev/mycelium.git
-cd mycelium
-cargo build --release --bin myc
-cp target/release/myc ~/.local/bin/
-```
+### Installation
 
-#### From Release (Coming Soon)
+#### From Release (Recommended)
 ```bash
+# Linux x86_64
 curl -L https://github.com/copyleftdev/mycelium/releases/latest/download/myc-linux-x64.tar.gz | tar xz
 sudo mv myc /usr/local/bin/
+
+# macOS x86_64
+curl -L https://github.com/copyleftdev/mycelium/releases/latest/download/myc-macos-x64.tar.gz | tar xz
+sudo mv myc /usr/local/bin/
+
+# macOS ARM64 (Apple Silicon)
+curl -L https://github.com/copyleftdev/mycelium/releases/latest/download/myc-macos-arm64.tar.gz | tar xz
+sudo mv myc /usr/local/bin/
+
+# Windows (PowerShell)
+Invoke-WebRequest -Uri "https://github.com/copyleftdev/mycelium/releases/latest/download/myc-windows-x64.zip" -OutFile "myc.zip"
+Expand-Archive -Path "myc.zip" -DestinationPath "."
+# Move myc.exe to a directory in your PATH
+
+# Verify installation
+myc --version
+```
+
+#### From Source
+```bash
+# Prerequisites: Rust 1.70+ (see rust-toolchain.toml)
+git clone https://github.com/copyleftdev/mycelium.git
+cd mycelium
+
+# Build optimized binary
+cargo build --release --bin myc
+
+# Install to system PATH
+sudo cp target/release/myc /usr/local/bin/
+# Or install to user PATH
+cp target/release/myc ~/.local/bin/
+
+# Verify installation
+myc --version
+```
+
+#### Package Managers (Coming Soon)
+```bash
+# Homebrew (macOS/Linux)
+brew install copyleftdev/tap/mycelium
+
+# Cargo
+cargo install myc-cli
+
+# Arch Linux (AUR)
+yay -S mycelium-cli
 ```
 
 ### First Steps
@@ -367,93 +408,520 @@ myc recovery org-key contribute --user charlie@company.com
 
 ## Troubleshooting
 
-### Common Issues
+### Installation Issues
 
-#### "Permission denied" errors
+#### Binary Not Found
 ```bash
-# Check your role in the project
-myc share list my-app
+# Error: "myc: command not found"
+# Check if binary is in PATH
+which myc
+echo $PATH
 
-# Verify device is enrolled and active
-myc device list
+# Solutions:
+# 1. Add to PATH in shell profile
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# 2. Install to system directory
+sudo cp myc /usr/local/bin/
+
+# 3. Use full path
+/path/to/myc --version
 ```
 
-#### "Failed to decrypt" errors
+#### Permission Denied
 ```bash
-# Check if PDK rotation excluded your device
-myc recovery status
+# Error: "Permission denied" when running myc
+# Solution: Make binary executable
+chmod +x /path/to/myc
 
-# Re-enroll device if necessary
-myc device enroll
+# Or if installed via curl/tar
+chmod +x myc && sudo mv myc /usr/local/bin/
 ```
 
-#### GitHub API rate limits
-```bash
-# Check rate limit status
-myc status
+### Authentication Problems
 
-# Use caching to reduce API calls
-myc cache status
+#### GitHub Token Issues
+```bash
+# Error: "GITHUB_TOKEN environment variable not set"
+# Solutions:
+
+# 1. Set environment variable (temporary)
+export GITHUB_TOKEN="ghp_your_token_here"
+
+# 2. Add to shell profile (permanent)
+echo 'export GITHUB_TOKEN="ghp_your_token_here"' >> ~/.bashrc
+source ~/.bashrc
+
+# 3. Use profile-based OAuth (recommended)
+myc profile add work-profile
+# Follow OAuth flow in browser
 ```
 
-#### Profile issues
+#### OAuth Flow Problems
 ```bash
-# List profiles
+# Error: "OAuth device flow failed"
+# Solutions:
+
+# 1. Check internet connection
+curl -I https://github.com
+
+# 2. Check GitHub status
+curl -I https://api.github.com
+
+# 3. Clear browser cache and retry
+# 4. Use incognito/private browsing mode
+# 5. Try different browser
+```
+
+#### Repository Access Denied
+```bash
+# Error: "Cannot access repository owner/repo"
+# Solutions:
+
+# 1. Check repository exists
+curl -H "Authorization: token $GITHUB_TOKEN" \
+  https://api.github.com/repos/owner/repo
+
+# 2. Verify token permissions
+# Token needs 'repo' scope for private repositories
+
+# 3. Check if you're a collaborator
+# Repository owner must add you as collaborator
+
+# 4. Initialize new vault if needed
+myc org init my-new-vault
+```
+
+### Device and Key Issues
+
+#### Device Keys Not Found
+```bash
+# Error: "Device keys not found for profile 'name'"
+# Solutions:
+
+# 1. Re-enroll device
+myc profile add profile-name
+
+# 2. Check profile exists
 myc profile list
 
-# Switch to correct profile
-myc profile use work-profile
+# 3. Check key files exist
+ls ~/.config/mycelium/profiles/profile-name/keys/
 
-# Check profile details
+# 4. Use different profile
+myc --profile other-profile command
+```
+
+#### Passphrase Problems
+```bash
+# Error: "Failed to decrypt device keys"
+# Solutions:
+
+# 1. Check passphrase is correct
+# Try empty passphrase if none was set
+
+# 2. Set environment variable for CI
+export MYC_KEY_PASSPHRASE="your_passphrase"
+
+# 3. Use non-interactive mode
+export MYC_NON_INTERACTIVE=1
+export MYC_KEY_PASSPHRASE=""
+
+# 4. Re-enroll with new passphrase
+myc profile remove old-profile
+myc profile add new-profile
+```
+
+#### Multiple Device Issues
+```bash
+# Error: "Only one device enrolled"
+# Solutions:
+
+# 1. Enroll additional devices
+myc device enroll laptop-backup
+
+# 2. Set up recovery contacts
+myc recovery set-contacts alice@company.com
+
+# 3. Check recovery status
+myc recovery status
+```
+
+### Vault and Project Issues
+
+#### Vault Not Found
+```bash
+# Error: "This may not be a valid Mycelium vault"
+# Solutions:
+
+# 1. Initialize vault
+myc org init organization-name
+
+# 2. Check correct repository
+myc profile show
+# Verify github_owner and github_repo
+
+# 3. Switch to correct profile
+myc profile use correct-profile
+
+# 4. Check repository structure
+# Should contain .mycelium/ directory
+```
+
+#### Project Access Denied
+```bash
+# Error: "Permission denied: You need write permission"
+# Solutions:
+
+# 1. Check your role
+myc share list project-name
+
+# 2. Request access from admin
+# Contact project owner or admin
+
+# 3. Verify project exists
+myc project list
+
+# 4. Check correct profile
 myc profile show
 ```
 
-### Getting Help
+#### Secret Set Not Found
+```bash
+# Error: "Secret set not found"
+# Solutions:
 
-1. **Check command help:**
-   ```bash
-   myc --help
-   myc pull --help
-   ```
+# 1. List available sets
+myc set list project-name
 
-2. **Enable verbose output:**
-   ```bash
-   myc -vv pull my-app production
-   ```
+# 2. Create secret set
+myc set create project-name set-name
 
-3. **Check system status:**
-   ```bash
-   myc status
-   ```
+# 3. Check spelling and case
+# Names are case-sensitive
+
+# 4. Use set ID instead of name
+myc versions list project-name set-id
+```
+
+### CI/CD Integration Issues
+
+#### OIDC Token Problems
+```bash
+# Error: "OIDC token validation failed"
+# Solutions:
+
+# 1. Check GitHub Actions permissions
+# Add to workflow:
+permissions:
+  id-token: write
+  contents: read
+
+# 2. Verify environment variables
+echo $ACTIONS_ID_TOKEN_REQUEST_URL
+echo $ACTIONS_ID_TOKEN_REQUEST_TOKEN
+
+# 3. Check CI device enrollment
+myc ci enroll ci-device --token $ACTIONS_ID_TOKEN
+
+# 4. Verify repository/workflow match
+# CI device must be enrolled for specific repo/workflow
+```
+
+#### Non-Interactive Mode Issues
+```bash
+# Error: "Cannot prompt in non-interactive mode"
+# Solutions:
+
+# 1. Set required environment variables
+export MYC_NON_INTERACTIVE=1
+export MYC_KEY_PASSPHRASE="passphrase"
+export MYC_PROFILE="ci-profile"
+
+# 2. Use --force flag where available
+myc command --force
+
+# 3. Pre-configure via .myc.yaml
+vault: my-vault
+project: my-project
+set: production
+```
+
+### Performance Issues
+
+#### Slow Operations
+```bash
+# Symptoms: Commands take a long time
+# Solutions:
+
+# 1. Clear cache
+myc cache clear
+
+# 2. Check cache status
+myc cache status
+
+# 3. Check network connectivity
+ping api.github.com
+
+# 4. Use verbose mode to diagnose
+myc -vv pull project set
+```
+
+#### Rate Limiting
+```bash
+# Error: "GitHub API rate limit exceeded"
+# Solutions:
+
+# 1. Check rate limit status
+myc status
+
+# 2. Wait for reset (shown in status)
+# Rate limits reset every hour
+
+# 3. Use authenticated requests
+# Authenticated: 5000/hour vs unauthenticated: 60/hour
+
+# 4. Reduce API calls
+# Use caching, avoid frequent operations
+```
+
+### Data Integrity Issues
+
+#### Verification Failures
+```bash
+# Error: "Integrity verification failed"
+# Solutions:
+
+# 1. Run comprehensive verification
+myc verify --all-projects
+
+# 2. Check specific components
+myc verify project-name --signatures-only
+myc verify project-name --chains-only
+
+# 3. Check audit log integrity
+myc audit verify-index
+
+# 4. Report corruption
+# If verification consistently fails, report to maintainers
+```
+
+#### Hash Chain Breaks
+```bash
+# Error: "Hash chain verification failed"
+# Solutions:
+
+# 1. Identify break point
+myc audit list --project project-name
+
+# 2. Check for tampering
+# Hash chain breaks indicate potential tampering
+
+# 3. Rebuild audit index
+myc audit rebuild-index
+
+# 4. Contact security team
+# Report potential security incident
+```
 
 ### Recovery Scenarios
 
-#### Lost passphrase
-If you forget your device passphrase but have recovery contacts:
-1. Enroll new device with new passphrase
-2. Request recovery from contacts
-3. Revoke old device
+#### Complete Device Loss
+```bash
+# Scenario: Lost all devices, no recovery contacts
+# Solutions:
 
-#### Compromised device
-If a device is compromised:
-1. Immediately revoke the device: `myc device revoke <device-id>`
-2. This triggers automatic PDK rotation
-3. Compromised device can no longer decrypt new secrets
+# 1. If you have GitHub access:
+#    - Create new profile
+#    - Contact project admins to add new device
+#    - Remove old devices
 
-#### Lost access to GitHub
-If you lose access to your GitHub account:
-1. Contact organization admins
-2. They can remove your old identity and add your new one
-3. Use organization recovery keys if available
+# 2. If organization has recovery keys:
+#    - Contact organization admins
+#    - Request organization recovery process
 
-### Performance Tips
+# 3. Last resort:
+#    - Create new vault
+#    - Migrate secrets manually
+#    - Update team access
+```
 
-1. **Use local caching** (enabled by default)
-2. **Batch operations** when possible
-3. **Use specific versions** to avoid fetching latest metadata
-4. **Clear cache** if experiencing issues: `myc cache clear`
+#### Forgotten Passphrase
+```bash
+# Scenario: Can't decrypt device keys
+# Solutions:
+
+# 1. If you have other devices:
+myc device list  # Check for other active devices
+myc --profile other-device-profile device revoke old-device
+
+# 2. If you have recovery contacts:
+myc recovery request new-device-name
+# Contact will receive recovery request
+
+# 3. If organization recovery is set up:
+# Contact organization admins for recovery
+```
+
+#### Corrupted Profile
+```bash
+# Scenario: Profile data corrupted
+# Solutions:
+
+# 1. Create new profile
+myc profile add new-profile-name
+
+# 2. Remove corrupted profile
+myc profile remove corrupted-profile --force
+
+# 3. Re-enroll device
+# Follow normal enrollment process
+
+# 4. Update project access
+# Contact admins to add new device to projects
+```
+
+### Getting Additional Help
+
+#### Enable Debug Output
+```bash
+# Basic verbose output
+myc -v command
+
+# More detailed output
+myc -vv command
+
+# Maximum verbosity
+myc -vvv command
+
+# JSON output for parsing
+myc --json command | jq '.'
+```
+
+#### Collect Diagnostic Information
+```bash
+# System information
+myc --version
+myc status
+
+# Profile information
+myc profile list
+myc profile show
+
+# Recovery status
+myc recovery status
+
+# Cache information
+myc cache status
+
+# Environment variables (sanitize before sharing)
+env | grep MYC
+```
+
+#### Community Resources
+- **GitHub Issues**: [Report bugs](https://github.com/copyleftdev/mycelium/issues)
+- **Discussions**: [Community Q&A](https://github.com/copyleftdev/mycelium/discussions)
+- **Documentation**: [Complete user guide](https://github.com/copyleftdev/mycelium/blob/main/USER_GUIDE.md)
+- **Security**: Email security@mycelium.dev for security issues
+
+#### Before Reporting Issues
+1. **Search existing issues** for similar problems
+2. **Try latest version** - update if possible
+3. **Collect logs** with verbose output
+4. **Sanitize sensitive data** before sharing
+5. **Provide minimal reproduction** steps
+
+## Quick Reference
+
+### Essential Commands
+```bash
+# Setup
+myc profile add <name>              # Create profile and enroll device
+myc org init <name>                 # Initialize vault in GitHub
+myc project create <name>           # Create project
+myc set create <project> <name>     # Create secret set
+
+# Daily usage
+myc pull <project> <set>            # Pull secrets
+myc push <project> <set> <file>     # Push secrets
+myc run <project> <set> -- <cmd>    # Run with secrets
+
+# Team management
+myc share add <proj> <user> --role <role>  # Add member
+myc share list <project>            # List members
+myc device list                     # List devices
+myc rotate <project>                # Rotate keys
+
+# Troubleshooting
+myc status                          # System status
+myc verify <project>                # Verify integrity
+myc cache clear                     # Clear cache
+myc -vv <command>                   # Verbose output
+```
+
+### Configuration File (.myc.yaml)
+```yaml
+# Place in project root for defaults
+vault: my-company-vault
+project: my-app
+set: development
+export_format: dotenv
+output_file: .env
+```
+
+### Environment Variables
+```bash
+# Authentication
+export GITHUB_TOKEN="ghp_..."
+export MYC_KEY_PASSPHRASE="passphrase"
+
+# CI/CD
+export MYC_NON_INTERACTIVE=1
+export MYC_PROFILE="ci-profile"
+
+# Debugging
+export RUST_LOG=debug
+```
+
+### Exit Codes
+- `0` - Success
+- `1` - General error
+- `2` - Invalid arguments
+- `3` - Authentication error
+- `4` - Permission denied
+- `5` - Cryptographic error
+- `6` - Network error
+- `7` - Conflict (concurrent modification)
+- `8` - Not found
+- `10` - User cancelled/non-interactive prompt
 
 ## Advanced Usage
+
+### Shell Completions
+
+Mycelium supports shell completions for bash, zsh, fish, elvish, and PowerShell:
+
+```bash
+# Generate completions for your shell
+myc completions bash > ~/.local/share/bash-completion/completions/myc
+myc completions zsh > ~/.zfunc/_myc
+myc completions fish > ~/.config/fish/completions/myc.fish
+
+# For bash (add to ~/.bashrc)
+source ~/.local/share/bash-completion/completions/myc
+
+# For zsh (add to ~/.zshrc)
+fpath=(~/.zfunc $fpath)
+autoload -U compinit && compinit
+
+# For fish (completions auto-load from ~/.config/fish/completions/)
+# No additional setup required
+
+# Test completions
+myc <TAB><TAB>  # Should show available commands
+myc profile <TAB><TAB>  # Should show profile subcommands
+```
 
 ### Custom Formats
 
@@ -479,6 +947,17 @@ export MYC_PROFILE=ci-profile
 
 # JSON output for parsing
 myc pull my-app prod --json | jq '.secrets.DATABASE_URL'
+
+# Batch operations
+for project in $(myc project list --json | jq -r '.projects[].name'); do
+    myc rotate "$project" --reason "quarterly-rotation"
+done
+
+# Error handling in scripts
+if ! myc pull my-app prod --quiet; then
+    echo "Failed to pull secrets" >&2
+    exit 1
+fi
 ```
 
 ### Multiple Vaults
